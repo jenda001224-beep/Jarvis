@@ -1,0 +1,1202 @@
+substitutions:
+  name: jarvis
+  friendly_name: Jarvis
+  version: "1.0.0"
+  default_player: media_player.bluetooth_reproduktor
+  default_light: light.pokoj
+  default_plug: switch.zasuvka_u_stolu
+  default_temp: sensor.pokoj_teplota
+  update_url: https://jenda001224-beep.github.io/Jarvis/manifest.json
+  setup_ssid: Jarvis Setup
+  setup_password: jarvis-setup
+  wake_word_model: hey_jarvis
+  brightness_active: "100%"
+  brightness_idle: "45%"
+  idle_timeout: 60s
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  min_version: 2026.3.0
+  project:
+    name: jenda.jarvis
+    version: ${version}
+  on_boot:
+    - priority: 800
+      then:
+        - lambda: |-
+            id(expander)->pin_mode(0, gpio::FLAG_OUTPUT);
+            id(expander)->digital_write(0, true);
+            id(expander)->pin_mode(1, gpio::FLAG_OUTPUT);
+            id(expander)->digital_write(1, false);
+            id(expander)->pin_mode(2, gpio::FLAG_OUTPUT);
+            id(expander)->digital_write(2, false);
+    - priority: 300
+      then:
+        - lambda: |-
+            auto *server = api::global_api_server;
+            std::string player = id(cfg_player).state;
+            std::string light_entity = id(cfg_light).state;
+            std::string plug_entity = id(cfg_plug).state;
+            std::string temp_entity = id(cfg_temp).state;
+            if (!player.empty()) {
+              server->subscribe_home_assistant_state(player, optional<std::string>(),
+                                                     std::function<void(StringRef)>([](StringRef value) {
+                                                       id(player_state) = value.str();
+                                                       id(refresh_media).execute();
+                                                     }));
+              server->subscribe_home_assistant_state(player, optional<std::string>("media_title"),
+                                                     std::function<void(StringRef)>([](StringRef value) {
+                                                       id(player_title) = value.str();
+                                                       id(refresh_media).execute();
+                                                     }));
+              server->subscribe_home_assistant_state(player, optional<std::string>("media_artist"),
+                                                     std::function<void(StringRef)>([](StringRef value) {
+                                                       id(player_artist) = value.str();
+                                                       id(refresh_media).execute();
+                                                     }));
+            }
+            if (!light_entity.empty()) {
+              server->subscribe_home_assistant_state(light_entity, optional<std::string>(),
+                                                     std::function<void(StringRef)>([](StringRef value) {
+                                                       id(light_state) = value.str();
+                                                       id(refresh_tiles).execute();
+                                                     }));
+            }
+            if (!plug_entity.empty()) {
+              server->subscribe_home_assistant_state(plug_entity, optional<std::string>(),
+                                                     std::function<void(StringRef)>([](StringRef value) {
+                                                       id(plug_state) = value.str();
+                                                       id(refresh_tiles).execute();
+                                                     }));
+            }
+            if (!temp_entity.empty()) {
+              server->subscribe_home_assistant_state(temp_entity, optional<std::string>(),
+                                                     std::function<void(StringRef)>([](StringRef value) {
+                                                       id(temp_state) = value.str();
+                                                       id(refresh_tiles).execute();
+                                                     }));
+            }
+    - priority: -100
+      then:
+        - script.execute: wake_screen
+        - script.execute: refresh_clock
+        - script.execute: apply_phase
+
+esp32:
+  variant: esp32s3
+  flash_size: 16MB
+  cpu_frequency: 240MHz
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC: "y"
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  level: DEBUG
+  hardware_uart: UART0
+  logs:
+    sensor: WARN
+    sound_level: WARN
+
+api:
+  encryption:
+  homeassistant_services: true
+  homeassistant_states: true
+
+ota:
+  - platform: http_request
+
+http_request:
+  verify_ssl: true
+
+update:
+  - platform: http_request
+    name: Firmware
+    source: ${update_url}
+
+wifi:
+  ap:
+    ssid: ${setup_ssid}
+    password: ${setup_password}
+  on_connect:
+    - script.execute: apply_phase
+  on_disconnect:
+    - script.execute: apply_phase
+
+captive_portal:
+
+improv_serial:
+
+time:
+  - platform: homeassistant
+    id: ha_time
+    on_time_sync:
+      - script.execute: refresh_clock
+    on_time:
+      - seconds: 0
+        then:
+          - script.execute: refresh_clock
+
+globals:
+  - id: phase
+    type: int
+    restore_value: false
+    initial_value: "0"
+  - id: route_bt
+    type: bool
+    restore_value: false
+    initial_value: "false"
+  - id: level
+    type: float
+    restore_value: false
+    initial_value: "0"
+  - id: last_core
+    type: int
+    restore_value: false
+    initial_value: "0"
+  - id: player_state
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: player_title
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: player_artist
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: light_state
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: plug_state
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: temp_state
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+
+i2c:
+  - id: bus_a
+    sda: GPIO47
+    scl: GPIO48
+    frequency: 400kHz
+
+pca9554:
+  - id: expander
+    i2c_id: bus_a
+    address: 0x20
+
+spi:
+  - id: lcd_spi
+    interface: software
+    clk_pin:
+      pca9554: expander
+      number: 2
+    mosi_pin:
+      pca9554: expander
+      number: 1
+
+display:
+  - platform: mipi_rgb
+    id: lcd
+    model: ST7701S
+    spi_id: lcd_spi
+    cs_pin:
+      pca9554: expander
+      number: 0
+    reset_pin:
+      pca9554: expander
+      number: 7
+    data_rate: 1MHz
+    dimensions:
+      width: 480
+      height: 480
+    data_pins:
+      red:
+        - GPIO10
+        - GPIO11
+        - GPIO12
+        - GPIO13
+        - GPIO14
+      green:
+        - GPIO21
+        - GPIO8
+        - GPIO18
+        - number: GPIO45
+          ignore_strapping_warning: true
+        - GPIO38
+        - GPIO39
+      blue:
+        - GPIO40
+        - GPIO41
+        - GPIO42
+        - GPIO2
+        - GPIO1
+    de_pin: GPIO17
+    hsync_pin:
+      number: GPIO46
+      ignore_strapping_warning: true
+    vsync_pin:
+      number: GPIO3
+      ignore_strapping_warning: true
+    pclk_pin: GPIO9
+    pclk_frequency: 10MHz
+    pclk_inverted: false
+    hsync_pulse_width: 8
+    hsync_back_porch: 50
+    hsync_front_porch: 10
+    vsync_pulse_width: 8
+    vsync_back_porch: 20
+    vsync_front_porch: 10
+    pixel_mode: 18bit
+    color_order: RGB
+    invert_colors: true
+    update_interval: never
+    auto_clear_enabled: false
+
+touchscreen:
+  - platform: gt911
+    id: touch
+    i2c_id: bus_a
+    display: lcd
+    reset_pin:
+      pca9554: expander
+      number: 5
+    interrupt_pin:
+      pca9554: expander
+      number: 6
+    on_touch:
+      - script.execute: wake_screen
+
+output:
+  - platform: ledc
+    id: backlight_pwm
+    pin: GPIO4
+    inverted: true
+    frequency: 5000Hz
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: Podsvícení
+    output: backlight_pwm
+    restore_mode: ALWAYS_ON
+    default_transition_length: 400ms
+
+i2s_audio:
+  - id: i2s_bus
+    i2s_lrclk_pin: GPIO7
+    i2s_bclk_pin: GPIO16
+    i2s_mclk_pin: GPIO5
+
+audio_adc:
+  - platform: es7210
+    id: mic_adc
+    i2c_id: bus_a
+    bits_per_sample: 16bit
+    sample_rate: 16000
+
+audio_dac:
+  - platform: es8311
+    id: speaker_dac
+    i2c_id: bus_a
+    bits_per_sample: 16bit
+    sample_rate: 48000
+
+microphone:
+  - platform: i2s_audio
+    id: board_mic
+    i2s_audio_id: i2s_bus
+    adc_type: external
+    i2s_din_pin: GPIO15
+    sample_rate: 16000
+    bits_per_sample: 16bit
+
+speaker:
+  - platform: i2s_audio
+    id: board_speaker
+    i2s_audio_id: i2s_bus
+    dac_type: external
+    i2s_dout_pin: GPIO6
+    sample_rate: 48000
+    bits_per_sample: 16bit
+    channel: left
+    audio_dac: speaker_dac
+    buffer_duration: 100ms
+
+media_player:
+  - platform: speaker
+    id: board_player
+    name: Reproduktor
+    volume_min: 0.4
+    volume_max: 0.85
+    announcement_pipeline:
+      speaker: board_speaker
+      format: FLAC
+      sample_rate: 48000
+      num_channels: 1
+    on_announcement:
+      - if:
+          condition:
+            and:
+              - voice_assistant.is_running:
+              - lambda: return id(route_bt);
+          then:
+            - switch.turn_off: speaker_amp
+          else:
+            - switch.turn_on: speaker_amp
+      - if:
+          condition:
+            microphone.is_capturing:
+          then:
+            - micro_wake_word.stop:
+      - if:
+          condition:
+            voice_assistant.is_running:
+          then:
+            - lambda: id(phase) = 4;
+            - script.execute: apply_phase
+    on_idle:
+      - switch.turn_off: speaker_amp
+      - if:
+          condition:
+            not:
+              voice_assistant.is_running:
+          then:
+            - script.execute: start_wake_word
+
+micro_wake_word:
+  id: mww
+  microphone: board_mic
+  models:
+    - model: ${wake_word_model}
+  on_wake_word_detected:
+    - voice_assistant.start:
+        wake_word: !lambda return wake_word;
+
+voice_assistant:
+  id: va
+  microphone: board_mic
+  media_player: board_player
+  micro_wake_word: mww
+  noise_suppression_level: 2
+  auto_gain: 31dBFS
+  volume_multiplier: 2.0
+  on_listening:
+    - lambda: |-
+        std::string state = id(player_state);
+        bool available = !state.empty() && state != "unavailable" && state != "unknown";
+        id(route_bt) = id(voice_to_bt).state && available;
+        id(phase) = 2;
+    - lvgl.label.update:
+        id: lbl_request
+        text: ""
+    - lvgl.label.update:
+        id: lbl_response
+        text: ""
+    - script.execute: wake_screen
+    - script.execute: apply_phase
+  on_stt_vad_end:
+    - lambda: id(phase) = 3;
+    - script.execute: apply_phase
+  on_stt_end:
+    - lvgl.label.update:
+        id: lbl_request
+        text: !lambda return x;
+  on_tts_start:
+    - lvgl.label.update:
+        id: lbl_response
+        text: !lambda return x;
+    - lambda: id(phase) = 4;
+    - script.execute: apply_phase
+  on_tts_end:
+    - if:
+        condition:
+          lambda: return id(route_bt);
+        then:
+          - homeassistant.action:
+              action: media_player.play_media
+              data:
+                entity_id: !lambda return id(cfg_player).state;
+                media_content_type: music
+                announce: "true"
+                media_content_id: !lambda return x;
+  on_end:
+    - wait_until:
+        condition:
+          media_player.is_announcing:
+        timeout: 0.5s
+    - wait_until:
+        and:
+          - not:
+              media_player.is_announcing:
+          - not:
+              speaker.is_playing:
+    - if:
+        condition:
+          lambda: return id(route_bt);
+        then:
+          - delay: 1500ms
+    - script.execute: start_wake_word
+    - if:
+        condition:
+          lambda: return id(phase) != 5;
+        then:
+          - script.execute: set_idle_phase
+  on_error:
+    - lvgl.label.update:
+        id: lbl_response
+        text: !lambda return message;
+    - lambda: id(phase) = 5;
+    - script.execute: apply_phase
+    - delay: 3s
+    - script.execute: start_wake_word
+    - script.execute: set_idle_phase
+  on_client_connected:
+    - script.execute: start_wake_word
+    - script.execute: set_idle_phase
+  on_client_disconnected:
+    - micro_wake_word.stop:
+    - lambda: id(phase) = 0;
+    - script.execute: apply_phase
+
+script:
+  - id: start_wake_word
+    then:
+      - if:
+          condition:
+            and:
+              - switch.is_off: mic_mute
+              - not:
+                  voice_assistant.is_running:
+              - not:
+                  micro_wake_word.is_running:
+          then:
+            - micro_wake_word.start:
+
+  - id: set_idle_phase
+    then:
+      - lambda: |-
+          if (id(va).get_api_connection() == nullptr) {
+            id(phase) = 0;
+          } else if (id(mic_mute).state) {
+            id(phase) = 6;
+          } else {
+            id(phase) = 1;
+          }
+      - script.execute: apply_phase
+
+  - id: apply_phase
+    mode: restart
+    then:
+      - lambda: |-
+          int p = id(phase);
+          bool overlay = p >= 2 && p <= 5;
+          if (overlay) {
+            lv_obj_remove_flag(id(voice_overlay), LV_OBJ_FLAG_HIDDEN);
+          } else {
+            lv_obj_add_flag(id(voice_overlay), LV_OBJ_FLAG_HIDDEN);
+          }
+          if (p == 3) {
+            lv_obj_remove_flag(id(spin_think), LV_OBJ_FLAG_HIDDEN);
+          } else {
+            lv_obj_add_flag(id(spin_think), LV_OBJ_FLAG_HIDDEN);
+          }
+          uint32_t accent = p == 5 ? 0xFF4D5E : 0x19C8FF;
+          lv_obj_set_style_bg_color(id(ring_core), lv_color_hex(accent), LV_PART_MAIN);
+          lv_obj_set_style_border_color(id(ring_mid), lv_color_hex(accent), LV_PART_MAIN);
+          lv_obj_set_style_border_color(id(ring_outer), lv_color_hex(accent), LV_PART_MAIN);
+          lv_obj_set_style_text_color(id(lbl_state), lv_color_hex(accent), LV_PART_MAIN);
+          const char *text = "";
+          if (p == 2) text = "Poslouchám…";
+          if (p == 3) text = "Přemýšlím…";
+          if (p == 4) text = id(route_bt) ? "Odpovídám do reproduktoru" : "Odpovídám";
+          if (p == 5) text = "Něco se nepovedlo";
+          lv_label_set_text(id(lbl_state), text);
+          if (p == 3 || p == 5) {
+            lv_obj_set_size(id(ring_core), 100, 100);
+            lv_obj_set_size(id(ring_mid), 140, 140);
+            lv_obj_set_size(id(ring_outer), 180, 180);
+            id(last_core) = 100;
+            id(level) = 0;
+          }
+          uint32_t dot = 0x3A4654;
+          if (p == 1) dot = 0x19C8FF;
+          if (p == 6) dot = 0xFF4D5E;
+          if (overlay) dot = 0x19C8FF;
+          lv_obj_set_style_bg_color(id(dot_status), lv_color_hex(dot), LV_PART_MAIN);
+          const char *hint = "Řekni „Hey Jarvis“";
+          if (p == 0) {
+            hint = wifi::global_wifi_component->is_connected() ? "Čekám na Home Assistant"
+                                                               : "Wi-Fi: síť ${setup_ssid}, heslo ${setup_password}";
+          }
+          if (p == 6) hint = "Mikrofon je vypnutý";
+          lv_label_set_text(id(lbl_hint), hint);
+
+  - id: wake_screen
+    mode: restart
+    then:
+      - light.turn_on:
+          id: backlight
+          brightness: ${brightness_active}
+      - delay: ${idle_timeout}
+      - wait_until:
+          lambda: return id(phase) < 2 || id(phase) > 5;
+      - light.turn_on:
+          id: backlight
+          brightness: ${brightness_idle}
+
+  - id: refresh_clock
+    then:
+      - lambda: |-
+          auto now = id(ha_time).now();
+          if (!now.is_valid()) {
+            return;
+          }
+          static const char *const DAYS[] = {"neděle", "pondělí", "úterý", "středa", "čtvrtek", "pátek", "sobota"};
+          static const char *const MONTHS[] = {"ledna", "února", "března", "dubna", "května", "června",
+                                               "července", "srpna", "září", "října", "listopadu", "prosince"};
+          lv_label_set_text_fmt(id(lbl_clock), "%02d:%02d", now.hour, now.minute);
+          lv_label_set_text_fmt(id(lbl_date), "%s %d. %s", DAYS[now.day_of_week - 1], now.day_of_month,
+                                MONTHS[now.month - 1]);
+
+  - id: refresh_media
+    then:
+      - lambda: |-
+          std::string state = id(player_state);
+          std::string title = id(player_title);
+          std::string artist = id(player_artist);
+          bool active = state == "playing" || state == "paused";
+          if (!active || title.empty() || title == "unknown" || title == "None") {
+            title = "Nic nehraje";
+            artist = state == "unavailable" || state.empty() ? "Reproduktor není připojený" : "Řekni, co mám pustit";
+          }
+          if (artist == "unknown" || artist == "None") {
+            artist = "";
+          }
+          lv_label_set_text(id(lbl_title), title.c_str());
+          lv_label_set_text(id(lbl_artist), artist.c_str());
+          lv_label_set_text(id(lbl_play_icon), state == "playing" ? "\U000F03E4" : "\U000F040A");
+          lv_obj_set_style_text_color(id(lbl_music_icon), lv_color_hex(state == "playing" ? 0x19C8FF : 0x5B6B7A),
+                                      LV_PART_MAIN);
+
+  - id: refresh_tiles
+    then:
+      - lambda: |-
+          auto apply = [](lv_obj_t *tile, lv_obj_t *label, const std::string &state, const char *on_text,
+                          const char *off_text) {
+            bool on = state == "on";
+            if (on) {
+              lv_obj_add_state(tile, LV_STATE_CHECKED);
+            } else {
+              lv_obj_remove_state(tile, LV_STATE_CHECKED);
+            }
+            const char *text = "—";
+            if (on) text = on_text;
+            if (state == "off") text = off_text;
+            lv_label_set_text(label, text);
+          };
+          apply(id(tile_light), id(lbl_light_value), id(light_state), "Svítí", "Zhasnuto");
+          apply(id(tile_plug), id(lbl_plug_value), id(plug_state), "Zapnuto", "Vypnuto");
+          char *end = nullptr;
+          std::string raw = id(temp_state);
+          float value = strtof(raw.c_str(), &end);
+          if (raw.empty() || end == raw.c_str()) {
+            lv_label_set_text(id(lbl_temp_value), "—");
+          } else {
+            char buffer[16];
+            snprintf(buffer, sizeof(buffer), "%.1f°", value);
+            lv_label_set_text(id(lbl_temp_value), buffer);
+          }
+
+  - id: reboot_soon
+    mode: restart
+    then:
+      - delay: 3s
+      - button.press: restart_button
+
+interval:
+  - interval: 50ms
+    then:
+      - lambda: |-
+          int p = id(phase);
+          if (p != 2 && p != 4) {
+            return;
+          }
+          float target = 0.0f;
+          if (p == 2) {
+            float db = id(mic_rms).state;
+            if (!std::isnan(db)) {
+              target = (db + 55.0f) / 40.0f;
+            }
+          } else {
+            target = 0.35f + 0.25f * sinf(millis() / 260.0f);
+          }
+          if (target < 0.0f) target = 0.0f;
+          if (target > 1.0f) target = 1.0f;
+          id(level) += (target - id(level)) * 0.45f;
+          int core = 100 + (int) (id(level) * 50.0f);
+          if (core == id(last_core)) {
+            return;
+          }
+          id(last_core) = core;
+          int mid = core + 36 + (int) (id(level) * 34.0f);
+          int outer = mid + 36 + (int) (id(level) * 34.0f);
+          lv_obj_set_size(id(ring_core), core, core);
+          lv_obj_set_size(id(ring_mid), mid, mid);
+          lv_obj_set_size(id(ring_outer), outer, outer);
+
+switch:
+  - platform: gpio
+    id: speaker_amp
+    restore_mode: ALWAYS_OFF
+    pin:
+      pca9554: expander
+      number: 3
+      mode:
+        output: true
+
+  - platform: template
+    id: voice_to_bt
+    name: Odpovědi do Bluetooth reproduktoru
+    icon: mdi:bluetooth-audio
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+
+  - platform: template
+    id: mic_mute
+    name: Vypnout mikrofon
+    icon: mdi:microphone-off
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: config
+    on_turn_on:
+      - micro_wake_word.stop:
+      - voice_assistant.stop:
+      - script.execute: set_idle_phase
+    on_turn_off:
+      - script.execute: start_wake_word
+      - script.execute: set_idle_phase
+
+sensor:
+  - platform: sound_level
+    microphone: board_mic
+    passive: true
+    measurement_duration: 50ms
+    rms:
+      id: mic_rms
+      internal: true
+
+button:
+  - platform: restart
+    id: restart_button
+    name: Restartovat
+    entity_category: config
+
+text:
+  - platform: template
+    id: cfg_player
+    name: Entita přehrávače
+    icon: mdi:speaker-bluetooth
+    entity_category: config
+    mode: text
+    max_length: 120
+    optimistic: true
+    restore_value: true
+    initial_value: ${default_player}
+    set_action:
+      - script.execute: reboot_soon
+
+  - platform: template
+    id: cfg_light
+    name: Entita světla
+    icon: mdi:lightbulb
+    entity_category: config
+    mode: text
+    max_length: 120
+    optimistic: true
+    restore_value: true
+    initial_value: ${default_light}
+    set_action:
+      - script.execute: reboot_soon
+
+  - platform: template
+    id: cfg_plug
+    name: Entita zásuvky
+    icon: mdi:power-socket-eu
+    entity_category: config
+    mode: text
+    max_length: 120
+    optimistic: true
+    restore_value: true
+    initial_value: ${default_plug}
+    set_action:
+      - script.execute: reboot_soon
+
+  - platform: template
+    id: cfg_temp
+    name: Entita teploty
+    icon: mdi:thermometer
+    entity_category: config
+    mode: text
+    max_length: 120
+    optimistic: true
+    restore_value: true
+    initial_value: ${default_temp}
+    set_action:
+      - script.execute: reboot_soon
+
+font:
+  - file:
+      type: gfonts
+      family: Inter
+      weight: 200
+    id: font_clock
+    size: 124
+    bpp: 4
+    glyphs: "0123456789:-"
+
+  - file:
+      type: gfonts
+      family: Inter
+      weight: 500
+    id: font_title
+    size: 24
+    bpp: 4
+    glyphs: &text_glyphs
+      - " !\"#$%&'()*+,-./0123456789:;<=>?@"
+      - "ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`"
+      - "abcdefghijklmnopqrstuvwxyz{|}~"
+      - "áčďéěíňóřšťúůýžÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ"
+      - "äöüßÄÖÜàèìòùâêîôûçñ"
+      - "…°„“”‚‘’–—€×·"
+
+  - file:
+      type: gfonts
+      family: Inter
+      weight: 400
+    id: font_body
+    size: 20
+    bpp: 4
+    glyphs: *text_glyphs
+
+  - file:
+      type: gfonts
+      family: Inter
+      weight: 500
+    id: font_small
+    size: 15
+    bpp: 4
+    glyphs: *text_glyphs
+
+  - file: https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/fonts/materialdesignicons-webfont.ttf
+    id: font_icon
+    size: 34
+    bpp: 4
+    glyphs:
+      - "\U000F0335"
+      - "\U000F07E7"
+      - "\U000F050F"
+      - "\U000F0387"
+      - "\U000F040A"
+      - "\U000F03E4"
+      - "\U000F04AD"
+      - "\U000F036C"
+
+lvgl:
+  displays:
+    - lcd
+  touchscreens:
+    - touch
+  buffer_size: 25%
+  default_font: font_body
+  style_definitions:
+    - id: style_tile
+      bg_color: 0x0E141B
+      bg_opa: COVER
+      radius: 24
+      border_width: 1
+      border_color: 0x1C2733
+      pad_all: 0
+      shadow_width: 0
+    - id: style_tile_on
+      bg_color: 0x0B2A3A
+      border_color: 0x19C8FF
+    - id: style_plain
+      bg_opa: TRANSP
+      border_width: 0
+      pad_all: 0
+      shadow_width: 0
+      radius: 0
+    - id: style_ring
+      bg_opa: TRANSP
+      radius: 400
+      border_color: 0x19C8FF
+      pad_all: 0
+      shadow_width: 0
+  top_layer:
+    widgets:
+      - obj:
+          id: voice_overlay
+          hidden: true
+          x: 0
+          y: 0
+          width: 480
+          height: 480
+          bg_color: 0x000000
+          bg_opa: 94%
+          border_width: 0
+          radius: 0
+          pad_all: 0
+          scrollable: false
+          on_click:
+            - voice_assistant.stop:
+            - media_player.stop:
+                id: board_player
+                announcement: true
+            - script.execute: set_idle_phase
+            - wait_until:
+                condition:
+                  not:
+                    voice_assistant.is_running:
+                timeout: 3s
+            - script.execute: start_wake_word
+          widgets:
+            - obj:
+                id: ring_box
+                styles: style_plain
+                align: TOP_MID
+                y: 8
+                width: 300
+                height: 300
+                scrollable: false
+                clickable: false
+                widgets:
+                  - obj:
+                      id: ring_outer
+                      styles: style_ring
+                      align: CENTER
+                      width: 180
+                      height: 180
+                      border_width: 2
+                      border_opa: 25%
+                      scrollable: false
+                      clickable: false
+                  - obj:
+                      id: ring_mid
+                      styles: style_ring
+                      align: CENTER
+                      width: 140
+                      height: 140
+                      border_width: 3
+                      border_opa: 55%
+                      scrollable: false
+                      clickable: false
+                  - obj:
+                      id: ring_core
+                      align: CENTER
+                      width: 100
+                      height: 100
+                      radius: 400
+                      bg_color: 0x19C8FF
+                      bg_opa: COVER
+                      bg_grad_color: 0x0A4DFF
+                      bg_grad_dir: VER
+                      border_width: 0
+                      pad_all: 0
+                      shadow_width: 0
+                      scrollable: false
+                      clickable: false
+                      widgets:
+                        - label:
+                            align: CENTER
+                            text: "\U000F036C"
+                            text_font: font_icon
+                            text_color: 0x04121C
+                  - spinner:
+                      id: spin_think
+                      hidden: true
+                      align: CENTER
+                      width: 220
+                      height: 220
+                      spin_time: 1200ms
+                      arc_length: 90deg
+                      arc_opa: TRANSP
+                      clickable: false
+                      indicator:
+                        arc_color: 0x19C8FF
+                        arc_width: 4
+                        arc_rounded: true
+            - label:
+                id: lbl_state
+                align: TOP_MID
+                y: 314
+                text: ""
+                text_font: font_small
+                text_color: 0x19C8FF
+                text_letter_space: 2
+            - label:
+                id: lbl_request
+                align: TOP_MID
+                y: 342
+                width: 432
+                height: 28
+                text: ""
+                text_font: font_body
+                text_color: 0x8FA1B3
+                text_align: CENTER
+                long_mode: DOT
+            - label:
+                id: lbl_response
+                align: TOP_MID
+                y: 376
+                width: 432
+                height: 92
+                text: ""
+                text_font: font_body
+                text_color: 0xF2F6FA
+                text_align: CENTER
+                long_mode: DOT
+  pages:
+    - id: page_home
+      bg_color: 0x05080C
+      bg_opa: COVER
+      scrollable: false
+      widgets:
+        - label:
+            align: TOP_LEFT
+            x: 26
+            y: 22
+            text: "J.A.R.V.I.S."
+            text_font: font_small
+            text_color: 0x5B6B7A
+            text_letter_space: 3
+        - obj:
+            id: dot_status
+            align: TOP_RIGHT
+            x: -26
+            y: 26
+            width: 10
+            height: 10
+            radius: 5
+            bg_color: 0x3A4654
+            bg_opa: COVER
+            border_width: 0
+            shadow_width: 0
+            scrollable: false
+            clickable: false
+        - label:
+            id: lbl_clock
+            align: TOP_MID
+            y: 44
+            text: "--:--"
+            text_font: font_clock
+            text_color: 0xF2F6FA
+        - label:
+            id: lbl_date
+            align: TOP_MID
+            y: 188
+            text: ""
+            text_font: font_body
+            text_color: 0x7C8B99
+        - label:
+            id: lbl_hint
+            align: TOP_MID
+            y: 218
+            text: "Čekám na Home Assistant"
+            text_font: font_small
+            text_color: 0x3F4D5B
+        - obj:
+            id: tile_light
+            styles: style_tile
+            x: 24
+            y: 252
+            width: 136
+            height: 104
+            scrollable: false
+            checked:
+              styles: style_tile_on
+            on_click:
+              - homeassistant.action:
+                  action: homeassistant.toggle
+                  data:
+                    entity_id: !lambda return id(cfg_light).state;
+            widgets:
+              - label:
+                  align: TOP_LEFT
+                  x: 14
+                  y: 12
+                  text: "\U000F0335"
+                  text_font: font_icon
+                  text_color: 0x19C8FF
+              - label:
+                  align: BOTTOM_LEFT
+                  x: 16
+                  y: -32
+                  text: "Světlo"
+                  text_font: font_small
+                  text_color: 0x7C8B99
+              - label:
+                  id: lbl_light_value
+                  align: BOTTOM_LEFT
+                  x: 16
+                  y: -10
+                  text: "—"
+                  text_font: font_small
+                  text_color: 0xF2F6FA
+        - obj:
+            id: tile_plug
+            styles: style_tile
+            x: 172
+            y: 252
+            width: 136
+            height: 104
+            scrollable: false
+            checked:
+              styles: style_tile_on
+            on_click:
+              - homeassistant.action:
+                  action: homeassistant.toggle
+                  data:
+                    entity_id: !lambda return id(cfg_plug).state;
+            widgets:
+              - label:
+                  align: TOP_LEFT
+                  x: 14
+                  y: 12
+                  text: "\U000F07E7"
+                  text_font: font_icon
+                  text_color: 0x19C8FF
+              - label:
+                  align: BOTTOM_LEFT
+                  x: 16
+                  y: -32
+                  text: "Zásuvka"
+                  text_font: font_small
+                  text_color: 0x7C8B99
+              - label:
+                  id: lbl_plug_value
+                  align: BOTTOM_LEFT
+                  x: 16
+                  y: -10
+                  text: "—"
+                  text_font: font_small
+                  text_color: 0xF2F6FA
+        - obj:
+            id: tile_temp
+            styles: style_tile
+            x: 320
+            y: 252
+            width: 136
+            height: 104
+            scrollable: false
+            on_click:
+              - micro_wake_word.stop:
+              - voice_assistant.start:
+            widgets:
+              - label:
+                  align: TOP_LEFT
+                  x: 14
+                  y: 12
+                  text: "\U000F050F"
+                  text_font: font_icon
+                  text_color: 0x19C8FF
+              - label:
+                  align: BOTTOM_LEFT
+                  x: 16
+                  y: -32
+                  text: "Pokoj"
+                  text_font: font_small
+                  text_color: 0x7C8B99
+              - label:
+                  id: lbl_temp_value
+                  align: BOTTOM_LEFT
+                  x: 16
+                  y: -10
+                  text: "—"
+                  text_font: font_small
+                  text_color: 0xF2F6FA
+        - obj:
+            id: bar_media
+            styles: style_tile
+            x: 24
+            y: 368
+            width: 432
+            height: 88
+            scrollable: false
+            clickable: false
+            widgets:
+              - label:
+                  id: lbl_music_icon
+                  align: LEFT_MID
+                  x: 16
+                  text: "\U000F0387"
+                  text_font: font_icon
+                  text_color: 0x5B6B7A
+              - label:
+                  id: lbl_title
+                  align: TOP_LEFT
+                  x: 64
+                  y: 16
+                  width: 236
+                  text: "Nic nehraje"
+                  text_font: font_title
+                  text_color: 0xF2F6FA
+                  long_mode: SCROLL_CIRCULAR
+              - label:
+                  id: lbl_artist
+                  align: TOP_LEFT
+                  x: 64
+                  y: 50
+                  width: 236
+                  text: ""
+                  text_font: font_small
+                  text_color: 0x7C8B99
+                  long_mode: DOT
+              - button:
+                  styles: style_plain
+                  align: RIGHT_MID
+                  x: -62
+                  width: 52
+                  height: 52
+                  on_click:
+                    - homeassistant.action:
+                        action: media_player.media_play_pause
+                        data:
+                          entity_id: !lambda return id(cfg_player).state;
+                  widgets:
+                    - label:
+                        id: lbl_play_icon
+                        align: CENTER
+                        text: "\U000F040A"
+                        text_font: font_icon
+                        text_color: 0xF2F6FA
+              - button:
+                  styles: style_plain
+                  align: RIGHT_MID
+                  x: -8
+                  width: 52
+                  height: 52
+                  on_click:
+                    - homeassistant.action:
+                        action: media_player.media_next_track
+                        data:
+                          entity_id: !lambda return id(cfg_player).state;
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "\U000F04AD"
+                        text_font: font_icon
+                        text_color: 0xF2F6FA

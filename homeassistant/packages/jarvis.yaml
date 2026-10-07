@@ -1,0 +1,121 @@
+script:
+  jarvis_play_music:
+    alias: "Jarvis: pustit hudbu"
+    icon: mdi:music
+    description: >-
+      Pustí hudbu z Apple Music na Bluetooth reproduktoru v pokoji. Použij vždy, když uživatel chce
+      pustit skladbu, album, interpreta, playlist nebo rádio. Názvy předávej v originálním pravopisu,
+      nikdy je nepřekládej a neskloňuj.
+    mode: restart
+    fields:
+      media_id:
+        name: Název
+        description: Název skladby, alba, interpreta nebo playlistu v originále, například Groovejet.
+        required: true
+        selector:
+          text:
+      media_type:
+        name: Typ
+        description: Typ obsahu. Když si nejsi jistý, použij track.
+        required: true
+        default: track
+        selector:
+          select:
+            options:
+              - track
+              - album
+              - artist
+              - playlist
+              - radio
+      artist:
+        name: Interpret
+        description: Interpret, pokud ho uživatel řekl nebo ho bezpečně znáš. Jinak nevyplňuj.
+        required: false
+        selector:
+          text:
+      radio_mode:
+        name: Podobná hudba
+        description: Zapni, když má po skončení pokračovat podobná hudba.
+        required: false
+        default: false
+        selector:
+          boolean:
+    variables:
+      player: media_player.bluetooth_reproduktor
+    sequence:
+      - action: music_assistant.play_media
+        target:
+          entity_id: "{{ player }}"
+        data:
+          media_id: "{{ media_id }}"
+          media_type: "{{ media_type | default('track') }}"
+          artist: "{{ artist | default('') }}"
+          enqueue: replace
+          radio_mode: "{{ radio_mode | default(false) }}"
+      - variables:
+          result:
+            status: playing
+            requested: "{{ media_id }}"
+            artist: "{{ artist | default('') }}"
+      - stop: ""
+        response_variable: result
+
+  jarvis_weather:
+    alias: "Jarvis: počasí doma"
+    icon: mdi:weather-partly-cloudy
+    description: >-
+      Vrátí aktuální počasí a předpověď pro domov v Praze, po hodinách na nejbližších 12 hodin a po
+      dnech na 4 dny. Použij pro každý dotaz na počasí doma nebo v Praze.
+    mode: parallel
+    variables:
+      weather_entity: weather.forecast_home
+    sequence:
+      - action: weather.get_forecasts
+        target:
+          entity_id: "{{ weather_entity }}"
+        data:
+          type: hourly
+        response_variable: hourly
+      - action: weather.get_forecasts
+        target:
+          entity_id: "{{ weather_entity }}"
+        data:
+          type: daily
+        response_variable: daily
+      - variables:
+          result:
+            now:
+              condition: "{{ states(weather_entity) }}"
+              temperature: "{{ state_attr(weather_entity, 'temperature') }}"
+              humidity: "{{ state_attr(weather_entity, 'humidity') }}"
+              wind_speed: "{{ state_attr(weather_entity, 'wind_speed') }}"
+            next_hours: "{{ hourly[weather_entity].forecast[:12] }}"
+            next_days: "{{ daily[weather_entity].forecast[:4] }}"
+      - stop: ""
+        response_variable: result
+
+  jarvis_web_search:
+    alias: "Jarvis: hledat na webu"
+    icon: mdi:web
+    description: >-
+      Vyhledá aktuální informace na internetu přes Google. Použij pro počasí mimo Prahu, zprávy,
+      sport, otevírací doby a všechno, co se nedá zjistit z chytré domácnosti ani z vlastních znalostí.
+    mode: parallel
+    fields:
+      query:
+        name: Dotaz
+        description: Celý dotaz česky, včetně místa a data, pokud na nich záleží.
+        required: true
+        selector:
+          text:
+    sequence:
+      - action: conversation.process
+        data:
+          agent_id: conversation.jarvis_web
+          text: "{{ query }}"
+        response_variable: answer
+      - variables:
+          result:
+            response: "{{ answer.response.speech.plain.speech }}"
+      - stop: ""
+        response_variable: result

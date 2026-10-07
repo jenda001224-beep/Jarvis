@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Jarvis — instalace</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='none' stroke='%2319c8ff' stroke-width='2' opacity='.35'/><circle cx='16' cy='16' r='7' fill='%2319c8ff'/></svg>">
+<link rel="stylesheet" href="style.css">
+<script type="module" src="vendor/esp-web-tools/install-button.js"></script>
+</head>
+<body>
+
+<header>
+  <div class="orb" aria-hidden="true"><i></i><i></i><i></i></div>
+  <p class="brand">J.A.R.V.I.S.</p>
+  <h1>Instalace do displeje</h1>
+  <p class="lede">
+    Nahraje firmware do desky Waveshare ESP32-S3-Touch-LCD-4B přímo z prohlížeče.
+    Nic se neinstaluje, stačí USB kabel.
+  </p>
+  <p class="meta" id="meta">Načítám verzi…</p>
+</header>
+
+<main>
+
+  <section class="card">
+    <h2><span class="num">1</span>Připoj desku</h2>
+    <ul>
+      <li>Otevři tuhle stránku v <strong>Chrome nebo Edge na počítači</strong>. Safari, Firefox a telefony to neumí.</li>
+      <li>Datový USB-C kabel zapoj do portu <strong>UART</strong>, tedy do toho, který není uprostřed.</li>
+      <li>Je to jen pro variantu <strong>4B</strong> s vestavěnými mikrofony a reproduktorem.</li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2><span class="num">2</span>Nahraj firmware</h2>
+    <p>
+      V okně prohlížeče vyber sériový port desky. Při první instalaci nech zaškrtnuté
+      smazání zařízení, při aktualizaci ho odškrtni, ať zůstane nastavení.
+    </p>
+    <esp-web-install-button manifest="manifest.json">
+      <button slot="activate" class="btn">Nainstalovat Jarvise</button>
+      <p slot="unsupported" class="warn">
+        Tenhle prohlížeč neumí Web Serial. Otevři stránku v Chrome nebo Edge na počítači.
+      </p>
+      <p slot="not-allowed" class="warn">
+        Instalace funguje jen přes HTTPS nebo z adresy localhost.
+      </p>
+    </esp-web-install-button>
+    <p class="hint">
+      Port se nenabízí? Zkus jiný kabel. Prostřední port (USB) firmware nahraje taky,
+      jen pak nenabídne Wi-Fi v prohlížeči. Nahrání trvá asi dvě minuty.
+    </p>
+  </section>
+
+  <section class="card">
+    <h2><span class="num">3</span>Připoj Wi-Fi</h2>
+    <p>
+      Po nahrání nabídne stejné okno připojení k Wi-Fi. Vyber síť 2,4 GHz a zadej heslo.
+    </p>
+    <p class="hint">
+      Když se nabídka neobjeví, připoj se telefonem k síti <code>Jarvis Setup</code>
+      s heslem <code>jarvis-setup</code> a Wi-Fi nastav tam. Stejný údaj ukazuje i displej.
+    </p>
+  </section>
+
+  <section class="card">
+    <h2><span class="num">4</span>Přidej do Home Assistanta</h2>
+    <ol>
+      <li>Home Assistant zařízení <strong>Jarvis</strong> sám najde v Nastavení → Zařízení a služby. Přidej ho.</li>
+      <li>V jeho nastavení v integraci ESPHome zapni <strong>Povolit zařízení provádět akce Home Assistanta</strong>.</li>
+      <li>Vyber mu hlasového asistenta <strong>Jarvis</strong>.</li>
+      <li>Na kartě zařízení vyplň v sekci Konfigurace ID svých entit: přehrávač, světlo, zásuvka, teplota. Po změně se displej sám restartuje.</li>
+    </ol>
+    <p class="hint">
+      Jak nastavit Gemini, Apple Music a Bluetooth reproduktor popisuje
+      <a href="https://github.com/jenda001224-beep/Jarvis#readme">návod v repozitáři</a>.
+    </p>
+  </section>
+
+  <section class="card quiet">
+    <h2>Jak poznáš, že to běží</h2>
+    <table>
+      <tr><td>hodiny a modrá tečka vpravo nahoře</td><td>displej, Wi-Fi a Home Assistant fungují</td></tr>
+      <tr><td>dotyk na dlaždici přepne světlo</td><td>dotyk a akce fungují</td></tr>
+      <tr><td>po „Hey Jarvis“ reaguje modrý kruh na hlas</td><td>mikrofony a wake word fungují</td></tr>
+      <tr><td>pod kruhem je tvoje věta a odpověď</td><td>přepis řeči a Gemini fungují</td></tr>
+    </table>
+    <p class="hint">
+      Další verze už kabel nepotřebují. V Home Assistantu se u zařízení objeví aktualizace firmwaru.
+    </p>
+  </section>
+
+</main>
+
+<footer>
+  <a href="https://github.com/jenda001224-beep/Jarvis">Zdrojový kód</a>
+  <span>·</span>
+  <span>Flasher: <a href="https://esphome.github.io/esp-web-tools/">ESP Web Tools</a></span>
+</footer>
+
+<script>
+fetch("manifest.json", { cache: "no-store" })
+  .then((response) => response.json())
+  .then((manifest) => {
+    const build = manifest.builds[0];
+    const size = build.size ? ` · ${(build.size / 1048576).toFixed(1)} MB` : "";
+    document.getElementById("meta").textContent = `Verze ${manifest.version}${size} · ${build.chipFamily}`;
+  })
+  .catch(() => {
+    document.getElementById("meta").textContent = "Verzi se nepodařilo načíst";
+  });
+</script>
+
+</body>
+</html>
