@@ -16,8 +16,8 @@
   <p class="brand">J.A.R.V.I.S.</p>
   <h1>Instalace do displeje</h1>
   <p class="lede">
-    Nahraje firmware do desky Waveshare ESP32-S3-Touch-LCD-4B přímo z prohlížeče.
-    Nic se neinstaluje, stačí USB kabel.
+    Nahraje Jarvise do desky Waveshare ESP32-S3-Touch-LCD-4B přímo z prohlížeče.
+    Displej pak mluví rovnou s Gemini, žádný server doma nepotřebuje.
   </p>
   <p class="meta" id="meta">Načítám verzi…</p>
 </header>
@@ -25,21 +25,54 @@
 <main>
 
   <section class="card">
-    <h2><span class="num">1</span>Připoj desku</h2>
-    <ul>
-      <li>Otevři tuhle stránku v <strong>Chrome nebo Edge na počítači</strong>. Safari, Firefox a telefony to neumí.</li>
-      <li>Datový USB-C kabel zapoj do portu <strong>UART</strong>, tedy do toho, který není uprostřed.</li>
-      <li>Je to jen pro variantu <strong>4B</strong> s vestavěnými mikrofony a reproduktorem.</li>
-    </ul>
+    <h2><span class="num">1</span>Klíč pro Gemini</h2>
+    <p>
+      Na <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">aistudio.google.com/app/apikey</a>
+      si zdarma vytvoř API klíč a vlož ho sem.
+    </p>
+    <label for="key">API klíč</label>
+    <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="AIza…">
   </section>
 
   <section class="card">
-    <h2><span class="num">2</span>Nahraj firmware</h2>
-    <p>
-      V okně prohlížeče vyber sériový port desky. Při první instalaci nech zaškrtnuté
-      smazání zařízení, při aktualizaci ho odškrtni, ať zůstane nastavení.
+    <h2><span class="num">2</span>Wi-Fi</h2>
+    <label for="ssid">Název sítě (jen 2,4 GHz)</label>
+    <input id="ssid" type="text" autocomplete="off" spellcheck="false" maxlength="32">
+    <label for="password">Heslo</label>
+    <input id="password" type="password" autocomplete="off" spellcheck="false" maxlength="63">
+    <details>
+      <summary>Další nastavení</summary>
+      <label for="voice">Hlas</label>
+      <select id="voice">
+        <option value="Charon">Charon — věcný</option>
+        <option value="Orus">Orus — pevný</option>
+        <option value="Puck">Puck — živý</option>
+        <option value="Fenrir">Fenrir — vznětlivý</option>
+        <option value="Kore">Kore — rozhodný</option>
+        <option value="Aoede">Aoede — vzdušný</option>
+        <option value="Leda">Leda — mladistvý</option>
+        <option value="Zephyr">Zephyr — jasný</option>
+      </select>
+      <label for="place">Kde bydlíš (pro počasí)</label>
+      <input id="place" type="text" value="Praha" maxlength="39">
+      <label for="volume">Hlasitost <span id="volume-value">70</span> %</label>
+      <input id="volume" type="range" min="30" max="100" step="5" value="70">
+      <label class="check"><input id="search" type="checkbox" checked> Smí hledat na Googlu (počasí, zprávy)</label>
+    </details>
+    <p class="hint">
+      Údaje neopouštějí tenhle počítač. Zapíšou se kabelem jen do desky.
     </p>
-    <esp-web-install-button manifest="manifest.json">
+  </section>
+
+  <section class="card">
+    <h2><span class="num">3</span>Nahraj do desky</h2>
+    <ul>
+      <li>Stránku měj otevřenou v <strong>Chrome nebo Edge na počítači</strong>.</li>
+      <li>Datový USB-C kabel zapoj do portu <strong>UART</strong>, tedy do toho, který není uprostřed.</li>
+      <li>Při první instalaci zaškrtni v okně <strong>Erase device</strong>.</li>
+    </ul>
+    <p id="missing" class="warn">Nejdřív vyplň klíč a Wi-Fi.</p>
+    <esp-web-install-button id="install" hidden>
       <button slot="activate" class="btn">Nainstalovat Jarvise</button>
       <p slot="unsupported" class="warn">
         Tenhle prohlížeč neumí Web Serial. Otevři stránku v Chrome nebo Edge na počítači.
@@ -48,48 +81,38 @@
         Instalace funguje jen přes HTTPS nebo z adresy localhost.
       </p>
     </esp-web-install-button>
+    <esp-web-install-button id="reconfigure" hidden>
+      <button slot="activate" class="btn quiet">Jen změnit nastavení</button>
+      <span slot="unsupported"></span>
+      <span slot="not-allowed"></span>
+    </esp-web-install-button>
     <p class="hint">
-      Port se nenabízí? Zkus jiný kabel. Prostřední port (USB) firmware nahraje taky,
-      jen pak nenabídne Wi-Fi v prohlížeči. Nahrání trvá asi dvě minuty.
+      Nahrání trvá asi tři minuty. „Jen změnit nastavení“ přepíše Wi-Fi a klíč a firmware nechá být.
+      <strong>Erase device u toho nezaškrtávej</strong>, smazal by se i firmware.
     </p>
   </section>
 
   <section class="card">
-    <h2><span class="num">3</span>Připoj Wi-Fi</h2>
-    <p>
-      Po nahrání nabídne stejné okno připojení k Wi-Fi. Vyber síť 2,4 GHz a zadej heslo.
-    </p>
-    <p class="hint">
-      Když se nabídka neobjeví, připoj se telefonem k síti <code>Jarvis Setup</code>
-      s heslem <code>jarvis-setup</code> a Wi-Fi nastav tam. Stejný údaj ukazuje i displej.
-    </p>
-  </section>
-
-  <section class="card">
-    <h2><span class="num">4</span>Přidej do Home Assistanta</h2>
+    <h2><span class="num">4</span>Hotovo</h2>
     <ol>
-      <li>Home Assistant zařízení <strong>Jarvis</strong> sám najde v Nastavení → Zařízení a služby. Přidej ho.</li>
-      <li>V jeho nastavení v integraci ESPHome zapni <strong>Povolit zařízení provádět akce Home Assistanta</strong>.</li>
-      <li>Vyber mu hlasového asistenta <strong>Jarvis</strong>.</li>
-      <li>Na kartě zařízení vyplň v sekci Konfigurace ID svých entit: přehrávač, světlo, zásuvka, teplota. Po změně se displej sám restartuje.</li>
+      <li>Displej se připojí k Wi-Fi a ukáže hodiny.</li>
+      <li>Řekni <strong>„Jarvis“</strong> nebo se dotkni displeje a mluv. Stačí i „Jarvisi, kolik je hodin?“ jedním dechem.</li>
+      <li>Máš-li doma IKEA hub DIRIGERA, nabídne displej spárování. Dotkni se nabídky a do minuty stiskni tlačítko na spodku hubu.</li>
     </ol>
     <p class="hint">
-      Jak nastavit Gemini, Apple Music a Bluetooth reproduktor popisuje
-      <a href="https://github.com/jenda001224-beep/Jarvis#readme">návod v repozitáři</a>.
+      Dotyk během odpovědi ji utne. Po odpovědi Jarvis ještě deset vteřin poslouchá, jestli nechceš pokračovat.
     </p>
   </section>
 
   <section class="card quiet">
-    <h2>Jak poznáš, že to běží</h2>
+    <h2>Když něco nejde</h2>
     <table>
-      <tr><td>hodiny a modrá tečka vpravo nahoře</td><td>displej, Wi-Fi a Home Assistant fungují</td></tr>
-      <tr><td>dotyk na dlaždici přepne světlo</td><td>dotyk a akce fungují</td></tr>
-      <tr><td>po „Hey Jarvis“ reaguje modrý kruh na hlas</td><td>mikrofony a wake word fungují</td></tr>
-      <tr><td>pod kruhem je tvoje věta a odpověď</td><td>přepis řeči a Gemini fungují</td></tr>
+      <tr><td>port se v prohlížeči nenabízí</td><td>jiný kabel, nebo prostřední USB-C port</td></tr>
+      <tr><td>„Chybí nastavení“</td><td>nahraj znovu s vyplněným klíčem a Wi-Fi</td></tr>
+      <tr><td>„Připojuji se k Wi-Fi“ nemizí</td><td>špatné heslo, nebo síť jen na 5 GHz</td></tr>
+      <tr><td>„Gemini: API key not valid“</td><td>překlep v klíči</td></tr>
+      <tr><td>na „Jarvis“ nereaguje</td><td>řekni to anglicky [džárvis], pomaleji a blíž</td></tr>
     </table>
-    <p class="hint">
-      Další verze už kabel nepotřebují. V Home Assistantu se u zařízení objeví aktualizace firmwaru.
-    </p>
   </section>
 
 </main>
@@ -100,18 +123,7 @@
   <span>Flasher: <a href="https://esphome.github.io/esp-web-tools/">ESP Web Tools</a></span>
 </footer>
 
-<script>
-fetch("manifest.json", { cache: "no-store" })
-  .then((response) => response.json())
-  .then((manifest) => {
-    const build = manifest.builds[0];
-    const size = build.size ? ` · ${(build.size / 1048576).toFixed(1)} MB` : "";
-    document.getElementById("meta").textContent = `Verze ${manifest.version}${size} · ${build.chipFamily}`;
-  })
-  .catch(() => {
-    document.getElementById("meta").textContent = "Verzi se nepodařilo načíst";
-  });
-</script>
+<script src="flasher.js"></script>
 
 </body>
 </html>

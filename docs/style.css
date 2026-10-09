@@ -190,9 +190,72 @@ a:hover {
   text-decoration: underline;
 }
 
+label {
+  display: block;
+  margin: 16px 0 6px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+label.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+}
+
+input[type="text"],
+input[type="password"],
+select {
+  display: block;
+  width: 100%;
+  padding: 13px 14px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+  font: inherit;
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus,
+select:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
+details {
+  margin-top: 18px;
+}
+
+summary {
+  color: var(--accent);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.card > .hint:last-child {
+  margin-top: 16px;
+}
+
 esp-web-install-button {
   display: block;
-  margin: 18px 0;
+  margin: 14px 0;
+}
+
+esp-web-install-button[hidden] {
+  display: none;
 }
 
 .btn {
@@ -208,6 +271,13 @@ esp-web-install-button {
   font-weight: 600;
   cursor: pointer;
   transition: filter 0.15s, transform 0.15s;
+}
+
+.btn.quiet {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-weight: 500;
 }
 
 .btn:hover {

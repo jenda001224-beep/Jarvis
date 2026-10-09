@@ -1,23 +1,36 @@
 {
   "name": "Jarvis",
-  "version": "1.0.0",
-  "home_assistant_domain": "esphome",
+  "version": "2.0.0",
   "new_install_prompt_erase": true,
-  "new_install_improv_wait_time": 20,
+  "new_install_improv_wait_time": 0,
+  "config": {
+    "offset": 9502720,
+    "size": 4096
+  },
   "builds": [
     {
       "chipFamily": "ESP32-S3",
-      "size": 1794528,
-      "ota": {
-        "md5": "d8614c2fe47dc9933a5d67d8d504fc8a",
-        "path": "firmware/jarvis.ota.bin",
-        "summary": "Jarvis 1.0.0",
-        "release_url": "https://jenda001224-beep.github.io/Jarvis/"
-      },
+      "size": 2554464,
       "parts": [
         {
-          "path": "firmware/jarvis.factory.bin",
-          "offset": 0
+          "path": "firmware/bootloader.bin",
+          "offset": 0,
+          "md5": "b868b1d7a5e69782ceb11560164ab0e4"
+        },
+        {
+          "path": "firmware/partition-table.bin",
+          "offset": 32768,
+          "md5": "ce93bdc305d1c5fbd03e946a025064d3"
+        },
+        {
+          "path": "firmware/jarvis.bin",
+          "offset": 65536,
+          "md5": "12d0d994a3cdf9645c610d33e0277d23"
+        },
+        {
+          "path": "firmware/srmodels.bin",
+          "offset": 8454144,
+          "md5": "6c1a466a2b1a85710e523a5f6e96592b"
         }
       ]
     }
