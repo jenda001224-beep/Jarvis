@@ -128,6 +128,7 @@ char *proto_build_setup(const proto_setup_t *setup)
 
     cJSON *realtime = cJSON_AddObjectToObject(body, "realtimeInputConfig");
     cJSON *detection = cJSON_AddObjectToObject(realtime, "automaticActivityDetection");
+    cJSON_AddStringToObject(detection, "startOfSpeechSensitivity", "START_SENSITIVITY_LOW");
     cJSON_AddNumberToObject(detection, "prefixPaddingMs", setup->prefix_ms);
     cJSON_AddNumberToObject(detection, "silenceDurationMs", setup->silence_ms);
 

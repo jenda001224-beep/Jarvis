@@ -79,7 +79,11 @@ async def main():
         input_audio_transcription=types.AudioTranscriptionConfig(),
         output_audio_transcription=types.AudioTranscriptionConfig(),
         realtime_input_config=types.RealtimeInputConfig(
-            automatic_activity_detection=types.AutomaticActivityDetection(prefix_padding_ms=200, silence_duration_ms=600)
+            automatic_activity_detection=types.AutomaticActivityDetection(
+                start_of_speech_sensitivity=types.StartSensitivity.START_SENSITIVITY_LOW,
+                prefix_padding_ms=200,
+                silence_duration_ms=600,
+            )
         ),
     )
     async with client.aio.live.connect(model="gemini-3.8-live", config=config) as session:

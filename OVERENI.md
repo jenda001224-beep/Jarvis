@@ -35,7 +35,7 @@ Displej, dotyk a zvuk firmware neovládá vlastním kódem, ale přes BSP výrob
 | Zvuk tam 16 kHz PCM, zpět 24 kHz PCM | dokumentace Live API; oba projekty | shoda |
 | Model `gemini-3.8-live`, hlasy Charon, Orus, Puck… | dokumentace Live API a seznam hlasů | podle dokumentace |
 | Jde spojit hledání na Googlu s vlastními nástroji | dokumentace nástrojů Live API | podle dokumentace; když server nastavení odmítne, další pokus jde bez hledání |
-| Rozhovor naostro | — | **neověřeno**, nemám klíč |
+| Rozhovor naostro | `firmware/test/live_check.py` žene kód firmwaru proti skutečnému serveru; zatím proběhl jen proti místní napodobenině | **čeká na klíč** |
 
 ## IKEA DIRIGERA
 

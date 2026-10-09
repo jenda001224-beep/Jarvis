@@ -87,6 +87,20 @@ Testy bez desky:
 
 Pustí převzorkování zvuku, stavbu a čtení zpráv pro Gemini a porovnání s oficiální knihovnou `google-genai`.
 
+Zkouška celého rozhovoru proti skutečnému Gemini (potřebuje klíč v `nastaveni.json`, desku ne):
+
+```bash
+cd /Volumes/Jan/Jarvis && TMPDIR=.tools/tmp .tools/venv/bin/python firmware/test/live_check.py
+```
+
+Nahrání do desky připojené k Macu a výpis z ní:
+
+```bash
+cd /Volumes/Jan/Jarvis && source tools/idf-env.sh && python tools/bench.py flash --erase --seconds 60
+```
+
+`nastaveni.json` (Wi-Fi a klíč) se do repozitáře neposílá.
+
 ## Složky
 
 | Složka | Obsah |

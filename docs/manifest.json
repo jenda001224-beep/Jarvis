@@ -10,7 +10,7 @@
   "builds": [
     {
       "chipFamily": "ESP32-S3",
-      "size": 2554464,
+      "size": 2554528,
       "parts": [
         {
           "path": "firmware/bootloader.bin",
@@ -25,7 +25,7 @@
         {
           "path": "firmware/jarvis.bin",
           "offset": 65536,
-          "md5": "12d0d994a3cdf9645c610d33e0277d23"
+          "md5": "00652acd49d3f57eedfa9b071572ca4a"
         },
         {
           "path": "firmware/srmodels.bin",

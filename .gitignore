@@ -3,3 +3,4 @@ varianta-home-assistant/esphome/.esphome/
 varianta-home-assistant/esphome/secrets.yaml
 .DS_Store
 __pycache__/
+nastaveni.json
