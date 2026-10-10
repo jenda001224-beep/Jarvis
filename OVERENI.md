@@ -14,6 +14,7 @@ Každé tvrzení, na kterém firmware stojí, a z čeho vychází. Stav k 10. 10
 | Mikrofon: špička 50–240 z 32767 při řeči z reproduktoru Macu, oslovení nezabralo | **nevyřešeno**; zesílení zvednuto z 30 na 37,5 dB, vzdálenost desky od Macu neznám |
 | Rozhovor s Gemini z desky | **neověřeno** |
 | Verze 2.1 (přímé kreslení do obrazové paměti, nový vzhled) | **na desce neběžela** |
+| Verze 2.2 (osobnost, tiskárna, kalendář, připomínky) | **na desce neběžela** |
 
 ## Deska
 
@@ -60,13 +61,45 @@ Displej, dotyk a zvuk firmware neovládá vlastním kódem, ale přes BSP výrob
 | Pole `id`, `type`, `attributes.customName`, `room.name`, `isReachable` | modely obou knihoven | shoda |
 | Volání proti hubu | — | **neověřeno**, macOS mi přístup do místní sítě nepovolil |
 
+## Tiskárna Bambu Lab A1
+
+| Tvrzení | Zdroje | Stav |
+|---|---|---|
+| Místní spojení: MQTT přes TLS na portu 8883, uživatel `bblp`, heslo je přístupový kód | dokumentace `Doridian/OpenBambuAPI` (mqtt.md); integrace `greghesp/ha-bambulab` (`bambu_client.py`); firmware `xperiments-in/xtouch` pro ESP32 | shoda tří zdrojů |
+| Stav chodí na `device/{sériové číslo}/report`, žádost o celý stav je `pushall` na `device/{sériové číslo}/request` | tytéž tři zdroje; zdroják Bambu Studia (`DeviceManager.cpp`, `command_pushing`) | shoda |
+| A1 posílá jen změny, celý stav až na `pushall` | OpenBambuAPI; ha-bambulab | shoda; firmware změny slučuje |
+| Pole `gcode_state`, `mc_percent`, `mc_remaining_time` (minuty), `layer_num`, `total_layer_num`, `subtask_name`, `stg_cur`, `print_error`, `hms` | OpenBambuAPI (ukázka zprávy); ha-bambulab (`models.py`); xtouch (`mqtt.h`) | shoda; čísla umí přijít i jako text, firmware bere obojí |
+| Čísla fází tisku (35 = pauza kvůli ucpané trysce, 6 = došel filament…) | Bambu Studio (`get_stage_string`); ha-bambulab (`CURRENT_STAGE_IDS`) | shoda |
+| Kód hlášení HMS je `attr` a `code` jako 16 šestnáctkových číslic, kód `print_error` 8 číslic | ha-bambulab (`HMSList`, `PrintError`); xtouch | shoda, test |
+| Text k chybovému kódu vrací `https://e.bambulab.com/query.php?lang=en&e=KÓD` | vyzkoušeno naostro z tohoto Macu pro kód HMS i `print_error`; odkaz ve zdrojáku ha-bambulab | ověřeno naostro; česky server neumí, překládá Gemini |
+| Tiskárna se v síti ohlašuje na UDP portu 2021 zprávou se službou `urn:bambulab-com:device:3dprinter:1`, adresou v `Location` a sériovým číslem v `USN` | Bambu Studio na tomhle Macu na portu 2021 poslouchá; manifest ha-bambulab (`ssdp`); skript `gashton/bambustudio_tools` | shoda; samotnou zprávu jsem nezachytil, port drží Bambu Studio |
+| Certifikát tiskárny se neověřuje | ha-bambulab a xtouch dělají totéž (vlastní certifikační autorita Bambu, spojení na IP adresu) | vědomé zjednodušení |
+| Spojení se skutečnou tiskárnou | — | **neověřeno** |
+
+## Kalendář a cesta
+
+| Tvrzení | Zdroje | Stav |
+|---|---|---|
+| Čtení souboru iCal včetně opakování, výjimek a přesunutých výskytů | 61 kalendářů (ruční ve stylu iCloudu a 60 náhodných) porovnáno s knihovnou `recurring_ical_events` v pěti časových oknech včetně obou změn času; ruční kalendář navíc krmený po 1, 2, 3, 7 a 61 bajtech | bez rozdílu, `firmware/test/agenda_check.py` |
+| Veřejný kalendář z iCloudu jde stáhnout z desky | — | **neověřeno**, odkaz nemám |
+| Vyhledání adresy přes Nominatim a trasa přes `routing.openstreetmap.de` (kolo, pěšky, auto) | obě služby vyzkoušené naostro z tohoto Macu, odpovědi čte stejný kód jako na desce | ověřeno naostro z Macu, z desky ne |
+| Čas na elektrokoloběžce | délka cyklotrasy při 17 km/h | odhad, ne měření |
+
+## Připomínky a vlastní promluva
+
+| Tvrzení | Zdroje | Stav |
+|---|---|---|
+| Jarvise jde přimět promluvit první zprávou `clientContent` s `turnComplete` | dokumentace Live API (podporováno po celou dobu spojení); knihovna `google-genai` posílá stejný tvar (`firmware/test/sdk_wire.py`) | tvar shodný, naostro **neověřeno** |
+| Ukládání, opakování po 90 s, nejvýš čtyři pokusy, přežití restartu | `firmware/test/test_modules.c` | test |
+| Za odpověď se počítá, když Gemini v naslouchání po promluvě přepíše aspoň dvě písmena, nebo dotyk | — | **neověřeno** v pokoji; hluk nebo televize by se mohly počítat jako odpověď |
+
 ## Flasher
 
 | Tvrzení | Zdroje | Stav |
 |---|---|---|
 | Části se zapisují na 0x0, 0x8000, 0x10000, 0x810000 | `flasher_args.json` ze sestavení; tabulka oddílů přečtená v `release.py` | kontrolováno při každém vydání |
 | Nahrání nepřepíše uložené nastavení ani spárování s hubem | `release.py` porovnává zapisované rozsahy s oddíly `nvs` a `cfg` | kontrolováno při každém vydání |
-| Nastavení z formuláře dojde do desky ve tvaru, který firmware čte | v prohlížeči sestavený obraz 4096 B rozebrán stejným pravidlem jako ve firmwaru, včetně diakritiky a uvozovek | ověřeno v prohlížeči |
+| Nastavení z formuláře dojde do desky ve tvaru, který firmware čte | v prohlížeči sestavený obraz 4096 B rozebrán stejným pravidlem jako ve firmwaru, včetně diakritiky, uvozovek, kódu tiskárny, kalendářů a adresy | ověřeno v prohlížeči |
 | ESP Web Tools umí manifest z `blob:` adresy a s `new_install_improv_wait_time: 0` přeskočí Improv | zdroják přibalené verze 10.4.0 | přečteno |
 | „Erase device“ je ve výchozím stavu nezaškrtnuté | zdroják přibalené verze | přečteno |
 | Zápis do skutečné desky | — | **neověřeno** |
@@ -86,3 +119,5 @@ Displej, dotyk a zvuk firmware neovládá vlastním kódem, ale přes BSP výrob
 - jestli po odpovědi nezachytí mikrofon dozvuk reproduktoru (pauza 300 ms je odhad)
 - zatížení paměti při souběhu displeje, Wi-Fi, TLS a rozpoznávání
 - chování při slabé Wi-Fi
+- jestli Jarvis s novou povahou opravdu mluví tak, jak má (vykání, „pane“, humor), a jestli sám nabídne připomenutí odchodu
+- jak dlouho trvá stažení velkého kalendáře a kolik vnitřní paměti ubere spojení s tiskárnou

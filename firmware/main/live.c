@@ -306,3 +306,12 @@ void live_send_tool_response(const char *id, const char *name, const char *resul
         proto_free(message);
     }
 }
+
+void live_send_text(const char *text)
+{
+    char *message = proto_build_text(text);
+    if (message) {
+        send_text(message, strlen(message));
+        proto_free(message);
+    }
+}

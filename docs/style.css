@@ -206,6 +206,7 @@ label.check {
 
 input[type="text"],
 input[type="password"],
+textarea,
 select {
   display: block;
   width: 100%;
@@ -219,9 +220,17 @@ select {
 
 input[type="text"]:focus,
 input[type="password"]:focus,
+textarea:focus,
 select:focus {
   border-color: var(--accent);
   outline: none;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 84px;
+  font-size: 14px;
+  word-break: break-all;
 }
 
 input[type="range"] {

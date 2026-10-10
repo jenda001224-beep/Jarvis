@@ -89,6 +89,9 @@ async def main():
     async with client.aio.live.connect(model="gemini-3.8-live", config=config) as session:
         await session.send_realtime_input(audio=types.Blob(data=b"\x01\x02\x03\x04", mime_type="audio/pcm;rate=16000"))
         await session.send_realtime_input(audio_stream_end=True)
+        await session.send_client_content(
+            turns=[{"role": "user", "parts": [{"text": "Nastal čas připomínky."}]}], turn_complete=True
+        )
         await session.send_tool_response(
             function_responses=[types.FunctionResponse(id="call-1", name="set_devices", response={"result": "ok"})]
         )
@@ -119,14 +122,18 @@ async def main():
     print("SDK dials:", dialled[0][0].replace("TESTKEY", "<key>"))
     print("SDK headers:", dialled[0][1])
     failed = False
-    for label, sdk, own in zip(("setup", "audio", "stream end", "tool response"), captured, mine):
+    order = ("setup", "audio", "stream end", "text prompt", "tool response")
+    mine = [mine[0], mine[1], mine[2], mine[4], mine[3]]
+    assert len(captured) >= len(order), captured
+    for label, sdk, own in zip(order, captured, mine):
         extra = sorted(keys(own) - keys(sdk))
         missing = sorted(keys(sdk) - keys(own))
         print(f"{label}: only in firmware {extra} | only in SDK {missing}")
         failed = failed or bool(extra) or bool(missing)
     print("SDK setup:", json.dumps(captured[0], ensure_ascii=False))
     print("SDK audio:", json.dumps(captured[1]))
-    print("SDK tool :", json.dumps(captured[3]))
+    print("SDK text :", json.dumps(captured[3], ensure_ascii=False))
+    print("SDK tool :", json.dumps(captured[4]))
     sys.exit(1 if failed else 0)
 
 

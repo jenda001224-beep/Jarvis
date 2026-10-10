@@ -175,6 +175,24 @@ char *proto_build_tool_response(const char *id, const char *name, const char *re
     return text;
 }
 
+char *proto_build_text(const char *text)
+{
+    cJSON *root = cJSON_CreateObject();
+    cJSON *content = cJSON_AddObjectToObject(root, "clientContent");
+    cJSON *turns = cJSON_AddArrayToObject(content, "turns");
+    cJSON *turn = cJSON_CreateObject();
+    cJSON_AddStringToObject(turn, "role", "user");
+    cJSON *parts = cJSON_AddArrayToObject(turn, "parts");
+    cJSON *part = cJSON_CreateObject();
+    cJSON_AddStringToObject(part, "text", text);
+    cJSON_AddItemToArray(parts, part);
+    cJSON_AddItemToArray(turns, turn);
+    cJSON_AddBoolToObject(content, "turnComplete", true);
+    char *message = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    return message;
+}
+
 void proto_free(char *text)
 {
     cJSON_free(text);

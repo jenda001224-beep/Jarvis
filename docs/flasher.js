@@ -6,6 +6,12 @@ const fields = {
   place: document.getElementById("place"),
   volume: document.getElementById("volume"),
   search: document.getElementById("search"),
+  printerCode: document.getElementById("printer-code"),
+  printerIp: document.getElementById("printer-ip"),
+  printerSerial: document.getElementById("printer-serial"),
+  calendars: document.getElementById("calendars"),
+  home: document.getElementById("home"),
+  transport: document.getElementById("transport"),
 };
 const installButton = document.getElementById("install");
 const reconfigureButton = document.getElementById("reconfigure");
@@ -16,8 +22,12 @@ const volumeValue = document.getElementById("volume-value");
 let published = null;
 let objectUrls = [];
 
+function calendarLinks() {
+  return fields.calendars.value.split(/\s+/).filter(Boolean);
+}
+
 function settings() {
-  return {
+  const values = {
     key: fields.key.value.trim(),
     ssid: fields.ssid.value,
     password: fields.password.value,
@@ -26,6 +36,44 @@ function settings() {
     volume: Number(fields.volume.value),
     search: fields.search.checked,
   };
+  const optional = {
+    printer_code: fields.printerCode.value.trim(),
+    printer_ip: fields.printerIp.value.trim(),
+    printer_serial: fields.printerSerial.value.trim().toUpperCase(),
+    home: fields.home.value.trim(),
+  };
+  Object.entries(optional).forEach(([name, value]) => {
+    if (value) {
+      values[name] = value;
+    }
+  });
+  if (calendarLinks().length) {
+    values.calendars = calendarLinks();
+  }
+  if (values.home) {
+    values.transport = fields.transport.value;
+  }
+  return values;
+}
+
+function problem(values) {
+  const links = values.calendars || [];
+  if (links.length > 3) {
+    return "Kalendáře mohou být nejvýš tři.";
+  }
+  if (links.some((link) => !/^(webcal|https):\/\/\S+$/i.test(link) || link.length > 255)) {
+    return "Odkaz na kalendář má začínat webcal:// nebo https:// a mít nejvýš 255 znaků.";
+  }
+  if (values.printer_ip && !/^\d{1,3}(\.\d{1,3}){3}$/.test(values.printer_ip)) {
+    return "IP adresa tiskárny má tvar 10.0.0.42.";
+  }
+  if (Boolean(values.printer_ip) !== Boolean(values.printer_serial)) {
+    return "IP adresu a sériové číslo tiskárny vyplň buď obě, nebo žádné.";
+  }
+  if ((values.printer_ip || values.printer_serial) && !values.printer_code) {
+    return "K tiskárně chybí přístupový kód.";
+  }
+  return "";
 }
 
 function settingsImage(values, size) {
@@ -62,7 +110,8 @@ function refresh() {
   objectUrls = [];
   const values = settings();
   const image = published ? settingsImage(values, published.config.size) : null;
-  const complete = Boolean(published && image && values.key && values.ssid);
+  const wrong = problem(values);
+  const complete = Boolean(published && image && values.key && values.ssid && !wrong);
   missing.hidden = complete;
   installButton.hidden = !complete;
   reconfigureButton.hidden = !complete;
@@ -71,7 +120,7 @@ function refresh() {
     return;
   }
   if (!complete) {
-    missing.textContent = image ? "Nejdřív vyplň klíč a Wi-Fi." : "Nastavení je moc dlouhé.";
+    missing.textContent = !image ? "Nastavení je moc dlouhé." : wrong || "Nejdřív vyplň klíč a Wi-Fi.";
     return;
   }
   const imageUrl = URL.createObjectURL(new Blob([image]));

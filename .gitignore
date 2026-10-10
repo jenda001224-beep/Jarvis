@@ -4,3 +4,4 @@ varianta-home-assistant/esphome/secrets.yaml
 .DS_Store
 __pycache__/
 nastaveni.json
+nahled-*.png

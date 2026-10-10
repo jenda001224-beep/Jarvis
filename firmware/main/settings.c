@@ -12,6 +12,7 @@
 #define CONFIG_PARTITION_TYPE 0x40
 #define NVS_NAMESPACE "jarvis"
 #define NVS_HUB_TOKEN "hub_token"
+#define NVS_REMINDERS "reminders"
 
 static const char *TAG = "settings";
 
@@ -19,6 +20,7 @@ static settings_t settings = {
     .model = "gemini-3.8-live",
     .voice = "Charon",
     .place = "Praha",
+    .transport = "scooter",
     .volume = 70,
     .search = true,
 };
@@ -66,6 +68,20 @@ bool settings_load(void)
     copy_string(settings.model, sizeof(settings.model), root, "model");
     copy_string(settings.voice, sizeof(settings.voice), root, "voice");
     copy_string(settings.place, sizeof(settings.place), root, "place");
+    copy_string(settings.home, sizeof(settings.home), root, "home");
+    copy_string(settings.transport, sizeof(settings.transport), root, "transport");
+    copy_string(settings.printer_code, sizeof(settings.printer_code), root, "printer_code");
+    copy_string(settings.printer_address, sizeof(settings.printer_address), root, "printer_ip");
+    copy_string(settings.printer_serial, sizeof(settings.printer_serial), root, "printer_serial");
+    const cJSON *calendar;
+    int calendars = 0;
+    cJSON_ArrayForEach(calendar, cJSON_GetObjectItemCaseSensitive(root, "calendars"))
+    {
+        if (calendars < SETTINGS_CALENDARS && cJSON_IsString(calendar) && calendar->valuestring[0] &&
+            strlen(calendar->valuestring) < sizeof(settings.calendars[0])) {
+            strcpy(settings.calendars[calendars++], calendar->valuestring);
+        }
+    }
     const cJSON *volume = cJSON_GetObjectItemCaseSensitive(root, "volume");
     if (cJSON_IsNumber(volume) && volume->valueint >= 10 && volume->valueint <= 100) {
         settings.volume = volume->valueint;
@@ -102,6 +118,29 @@ void settings_write_hub_token(const char *token)
         return;
     }
     nvs_set_str(handle, NVS_HUB_TOKEN, token);
+    nvs_commit(handle);
+    nvs_close(handle);
+}
+
+size_t settings_read_reminders(void *out, size_t capacity)
+{
+    nvs_handle_t handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle) != ESP_OK) {
+        return 0;
+    }
+    size_t length = capacity;
+    esp_err_t err = nvs_get_blob(handle, NVS_REMINDERS, out, &length);
+    nvs_close(handle);
+    return err == ESP_OK ? length : 0;
+}
+
+void settings_write_reminders(const void *data, size_t length)
+{
+    nvs_handle_t handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) != ESP_OK) {
+        return;
+    }
+    nvs_set_blob(handle, NVS_REMINDERS, data, length);
     nvs_commit(handle);
     nvs_close(handle);
 }

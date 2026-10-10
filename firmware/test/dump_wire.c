@@ -26,5 +26,8 @@ int main(void)
     text = proto_build_tool_response("call-1", "set_devices", "{\"result\":\"ok\"}");
     puts(text);
     proto_free(text);
+    text = proto_build_text("Nastal čas připomínky.");
+    puts(text);
+    proto_free(text);
     return 0;
 }

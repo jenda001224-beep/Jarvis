@@ -14,8 +14,13 @@ Deska Waveshare **ESP32-S3-Touch-LCD-4B** (4" displej, dva mikrofony, reprodukto
 │  · pozná slovo „Jarvis“  │   (jedno šifrované spojení)│ (Google)         │
 │  · mikrofon, reproduktor │                            └──────────────────┘
 │  · displej               │   příkaz „zhasni“          ┌──────────────────┐
-│                          │ ─────────────────────────▶ │ IKEA DIRIGERA    │
-└──────────────────────────┘   (místní síť)             └──────────────────┘
+│  · připomínky            │ ─────────────────────────▶ │ IKEA DIRIGERA    │
+│                          │   stav tisku               ├──────────────────┤
+│                          │ ◀───────────────────────── │ Bambu Lab A1     │
+│                          │   (místní síť)             └──────────────────┘
+│                          │   události (odkaz iCal)    ┌──────────────────┐
+│                          │ ◀───────────────────────── │ kalendář         │
+└──────────────────────────┘                            └──────────────────┘
 ```
 
 1. Slovo „Jarvis“ pozná deska sama, bez internetu. Do té doby nic nikam neposílá.
@@ -23,15 +28,20 @@ Deska Waveshare **ESP32-S3-Touch-LCD-4B** (4" displej, dva mikrofony, reprodukto
 3. Gemini odpovídá rovnou hlasem. Na displeji běží přepis toho, co slyšel a co říká.
 4. Když po něm chceš světlo, pošle zpátky příkaz a deska ho předá IKEA hubu.
 5. Po odpovědi ještě deset vteřin poslouchá, jestli nechceš pokračovat. Pak spojení zavře.
+6. Stav tiskárny si deska drží sama z místní sítě a kalendář si každých deset minut stáhne. Gemini se na ně ptá stejně jako na světla.
+7. Když nastane čas připomínky, otevře deska spojení sama a Jarvis promluví první.
 
 ## Stav
 
 | Co | Stav |
 |---|---|
-| Firmware | přeložený bez varování (ESP-IDF 5.5.5), 2,2 MB |
+| Firmware | verze 2.2, přeložený bez varování (ESP-IDF 5.5.5) |
+| Kalendář | čtení i opakované události porovnané s knihovnou `recurring_ical_events` na 61 kalendářích, bez rozdílu; na desce **netestováno** |
+| Tiskárna | čtení stavu a chybových kódů otestované na počítači; proti skutečné tiskárně **netestováno** |
+| Připomínky | logika otestovaná na počítači; že Jarvis opravdu promluví sám, **netestováno** (chce API klíč a desku) |
 | Zprávy pro Gemini | shodné s tím, co posílá oficiální knihovna Googlu; adresa ověřená proti skutečnému serveru |
 | Web flasher | stránka, manifest i zapisovaná data ověřené v prohlížeči |
-| Skutečná deska | verze 2.0 na desce nabíhá: displej, dotyk, zvukové čipy, model „Jarvis“, Wi-Fi i nalezení IKEA hubu. Verze 2.1 (nový vzhled, opravy paměti a mikrofonu) na desce **ještě neběžela** |
+| Skutečná deska | verze 2.0 na desce nabíhá: displej, dotyk, zvukové čipy, model „Jarvis“, Wi-Fi i nalezení IKEA hubu. Verze 2.1 a 2.2 (nový vzhled, opravy paměti a mikrofonu, tiskárna, kalendář, připomínky) na desce **ještě neběžely** |
 | Rozhovor s Gemini naostro | **netestováno** — nemám API klíč |
 | IKEA hub | **netestováno** — z mého prostředí na něj nevidím |
 
@@ -41,9 +51,9 @@ Co přesně je čím podložené a co ověřit nešlo, je v [OVERENI.md](OVERENI
 
 1. Vytvoř si zdarma API klíč na `aistudio.google.com/app/apikey`.
 2. Otevři [flasher](https://jenda001224-beep.github.io/Jarvis/) v Chrome nebo Edge na počítači.
-3. Vyplň klíč a Wi-Fi (jen 2,4 GHz). Údaje zůstávají v prohlížeči a zapíšou se kabelem do desky.
+3. Vyplň klíč a Wi-Fi (jen 2,4 GHz). Tiskárna, kalendář a adresa domova jsou nepovinné. Údaje zůstávají v prohlížeči a zapíšou se kabelem do desky.
 4. Zapoj desku USB-C kabelem do portu UART (ten, který není uprostřed) a klikni na **Nainstalovat Jarvise**. Při první instalaci zaškrtni Erase device.
-5. Displej ukáže hodiny. Řekni „Jarvis“ nebo se ho dotkni.
+5. Displej ukáže hodiny. Řekni „Jarvisi“ nebo se ho dotkni.
 
 Změna Wi-Fi nebo klíče: tlačítko **Jen změnit nastavení**. Erase device u toho nezaškrtávej, smazal by se i firmware.
 
@@ -53,6 +63,34 @@ Jarvis si hub DIRIGERA v síti najde sám a nabídne spárování dole na disple
 
 Bez hubu funguje všechno ostatní, jen světla neumí.
 
+## Tiskárna Bambu Lab
+
+Do flasheru opiš přístupový kód z displeje tiskárny (Nastavení → WLAN → Access Code). Jarvis si tiskárnu v síti najde sám, připojí se k ní po místní síti a jen čte; nic na ní neovládá. Když tiskne, ukazuje vpravo nahoře na displeji procenta a zbývající čas.
+
+- „Jarvisi, jak je na tom tisk?“ — procenta, zbývající čas, vrstva
+- „Jarvisi, proč se tiskárna zastavila?“ — důvod pauzy a chybová hlášení; jejich popis si deska stáhne od Bambu Lab anglicky a Jarvis ho řekne česky
+
+Když se tiskárna sama nenajde, vyplň ve flasheru i její IP adresu a sériové číslo.
+
+## Kalendář a cesta
+
+Jarvis čte kalendář přes odkaz ve formátu iCal:
+
+1. iPhone: Kalendář → Kalendáře → ⓘ u kalendáře → zapni **Veřejný kalendář** → Sdílet odkaz.
+2. Odkaz (začíná `webcal://`) vlož do flasheru. Jdou nejvýš tři kalendáře.
+
+Kdo ten odkaz má, může kalendář číst. Je dlouhý a neuhodnutelný, ale nikam ho nedávej. Stejně funguje tajná adresa iCal z Google Kalendáře.
+
+Když vyplníš i adresu domova, spočítá Jarvis k událostem s místem dobu cesty (koloběžka, kolo, pěšky, auto) a nabídne, že řekne, kdy vyrazit. Adresa domova a místo události se kvůli tomu posílají službám OpenStreetMap (Nominatim a routing.openstreetmap.de). Čas na koloběžce je odhad z délky cyklotrasy při 17 km/h.
+
+Omezení: zná 14 dní dopředu, časová pásma jiná než české bere jako místní čas a z pravidel opakování umí běžné případy (denně, týdně, měsíčně, ročně, výjimky, přesunuté výskyty).
+
+## Připomínky
+
+„Jarvisi, připomeň mi v pět, ať vypnu troubu“ nebo odpověď „ano“ na nabídku, že dá vědět, kdy vyrazit. Připomínky přežijí vypnutí desky, vejde se jich osm.
+
+Když nastane čas, Jarvis promluví sám a zeptá se, jestli ho slyšíš. Stačí cokoli odpovědět nebo se dotknout displeje. Když se nikdo neozve, zkusí to po minutě a půl znovu, celkem čtyřikrát. Potom nechá dole na displeji „Připomínka čeká“ a řekne ji hned, jak ho příště oslovíš.
+
 ## Ovládání
 
 | Akce | Co udělá |
@@ -60,12 +98,16 @@ Bez hubu funguje všechno ostatní, jen světla neumí.
 | „Jarvisi“ | začne poslouchat |
 | „Jarvisi, dej mi trošku světla“ | rozsvítí displej bíle na plný jas; dotyk nebo „zhasni displej“ ho vrátí |
 | „Jarvisi, zapni LEDky, modrá, jas 100“ | zapne světla z IKEA hubu a nastaví barvu a jas |
+| „Jarvisi, jak je na tom tisk?“ | stav tiskárny Bambu Lab |
+| „Jarvisi, co dneska budu dělat?“ | dnešní události z kalendáře, u těch s místem i doba cesty |
+| „Jarvisi, připomeň mi za dvacet minut…“ | nastaví připomínku |
 | dotyk na displej | začne poslouchat bez oslovení |
 | dotyk během rozhovoru | ukončí ho |
 | mlčení 10 s po odpovědi | ukončí ho samo |
 
 ## Co je dobré vědět
 
+- **Jarvis vyká a říká „pane“.** Mluví jako Jarvis z Iron Mana, se suchým humorem. Povahu má v `firmware/main/main.c` v textu `PERSONA`.
 - **Oslovení „Jarvisi“ hlídá model natrénovaný na „Jarvis“.** Je to hotový model od Espressifu a české „Jarvisi“ to slovo obsahuje. Na desce to ale ještě nikdo nevyzkoušel; první měření ukázalo příliš tichý mikrofon, zesílení je od verze 2.1 na maximu.
 - **Když Jarvis mluví, neposlouchá.** Mikrofony by slyšely reproduktor. Skočit do řeči mu jde jen dotykem.
 - **Dokud běží rozhovor, jde zvuk z pokoje ke Googlu.** Mimo rozhovor ne. V bezplatném tarifu Google data používá ke zlepšování služeb.
@@ -87,7 +129,8 @@ Testy bez desky:
 /Volumes/Jan/Jarvis/firmware/test/run.sh
 ```
 
-Pustí převzorkování zvuku, stavbu a čtení zpráv pro Gemini a porovnání s oficiální knihovnou `google-genai`.
+Pustí převzorkování zvuku, stavbu a čtení zpráv pro Gemini, porovnání s oficiální knihovnou `google-genai`, čtení stavu tiskárny, připomínky a porovnání kalendáře s knihovnou `recurring_ical_events`.
+Python k tomu potřebuje balíčky `google-genai`, `websockets`, `icalendar`, `recurring-ical-events` a `python-dateutil`.
 
 Náhled displeje bez desky (stejný kód, jaký kreslí na desce):
 
@@ -113,7 +156,7 @@ cd /Volumes/Jan/Jarvis && source tools/idf-env.sh && python tools/bench.py flash
 
 | Složka | Obsah |
 |---|---|
-| `firmware/main/` | firmware: `main.c` řízení, `wake.c` oslovení, `live.c` a `proto.c` Gemini, `audio.c` zvuk, `ikea.c` světla, `ui.c` texty na displeji, `fx.c` a `scene.c` kreslení a animace koule a prstenců |
+| `firmware/main/` | firmware: `main.c` řízení a osobnost, `wake.c` oslovení, `live.c` a `proto.c` Gemini, `audio.c` zvuk, `ikea.c` světla, `printer.c` a `bambu.c` tiskárna, `calendar.c` a `agenda.c` kalendář, `travel.c` a `geo.c` doba cesty, `reminders.c` připomínky, `web.c` stahování, `ui.c` texty na displeji, `fx.c` a `scene.c` kreslení a animace koule a prstenců |
 | `firmware/test/` | testy, které běží na počítači |
 | `docs/` | web flasher (GitHub Pages) |
 | `tools/` | sestavení a vydání |

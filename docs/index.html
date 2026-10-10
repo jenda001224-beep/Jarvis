@@ -65,7 +65,46 @@
   </section>
 
   <section class="card">
-    <h2><span class="num">3</span>Nahraj do desky</h2>
+    <h2><span class="num">3</span>Co má Jarvis znát</h2>
+    <p>Všechno v téhle části je nepovinné. Co nevyplníš, to Jarvis prostě neumí.</p>
+
+    <label for="printer-code">Tiskárna Bambu Lab — přístupový kód</label>
+    <input id="printer-code" type="text" autocomplete="off" spellcheck="false" maxlength="15" placeholder="např. 12345678">
+    <p class="hint">
+      Na displeji tiskárny v Nastavení → WLAN, položka Access Code. Tiskárnu si Jarvis v síti najde sám.
+      Pak se ptej „Jarvisi, jak je na tom tisk?“ nebo „proč se tiskárna zastavila?“
+    </p>
+    <details>
+      <summary>Tiskárna se nenašla sama</summary>
+      <label for="printer-ip">IP adresa tiskárny</label>
+      <input id="printer-ip" type="text" autocomplete="off" spellcheck="false" maxlength="39" placeholder="10.0.0.42">
+      <label for="printer-serial">Sériové číslo tiskárny</label>
+      <input id="printer-serial" type="text" autocomplete="off" spellcheck="false" maxlength="23" placeholder="0309…">
+    </details>
+
+    <label for="calendars">Kalendář — odkazy, jeden na řádek, nejvýš tři</label>
+    <textarea id="calendars" rows="3" autocomplete="off" spellcheck="false" placeholder="webcal://p12-caldav.icloud.com/published/2/…"></textarea>
+    <p class="hint">
+      iPhone: Kalendář → Kalendáře → ⓘ u kalendáře → zapni Veřejný kalendář → Sdílet odkaz. Funguje i tajná
+      adresa iCal z Google Kalendáře. <strong>Kdo má odkaz, může kalendář číst</strong>, tak ho nikam nedávej.
+    </p>
+
+    <label for="home">Adresa domova (pro odhad cesty na schůzky)</label>
+    <input id="home" type="text" autocomplete="off" maxlength="95" placeholder="Ulice 12, Praha">
+    <label for="transport">Čím obvykle jezdíš</label>
+    <select id="transport">
+      <option value="scooter">elektrokoloběžka</option>
+      <option value="bike">kolo</option>
+      <option value="walk">pěšky</option>
+      <option value="car">auto</option>
+    </select>
+    <p class="hint">
+      Adresa domova a místa schůzek se kvůli výpočtu cesty posílají mapové službě OpenStreetMap.
+    </p>
+  </section>
+
+  <section class="card">
+    <h2><span class="num">4</span>Nahraj do desky</h2>
     <ul>
       <li>Stránku měj otevřenou v <strong>Chrome nebo Edge na počítači</strong>.</li>
       <li>Datový USB-C kabel zapoj do portu <strong>UART</strong>, tedy do toho, který není uprostřed.</li>
@@ -87,20 +126,21 @@
       <span slot="not-allowed"></span>
     </esp-web-install-button>
     <p class="hint">
-      Nahrání trvá asi tři minuty. „Jen změnit nastavení“ přepíše Wi-Fi a klíč a firmware nechá být.
+      Nahrání trvá asi tři minuty. „Jen změnit nastavení“ přepíše všechno, co je vyplněné výš, a firmware nechá být.
       <strong>Erase device u toho nezaškrtávej</strong>, smazal by se i firmware.
     </p>
   </section>
 
   <section class="card">
-    <h2><span class="num">4</span>Hotovo</h2>
+    <h2><span class="num">5</span>Hotovo</h2>
     <ol>
       <li>Displej se připojí k Wi-Fi a ukáže hodiny.</li>
-      <li>Řekni <strong>„Jarvis“</strong> nebo se dotkni displeje a mluv. Stačí i „Jarvisi, kolik je hodin?“ jedním dechem.</li>
+      <li>Řekni <strong>„Jarvisi“</strong> nebo se dotkni displeje a mluv. Stačí i „Jarvisi, kolik je hodin?“ jedním dechem.</li>
       <li>Máš-li doma IKEA hub DIRIGERA, nabídne displej spárování. Dotkni se nabídky a do minuty stiskni tlačítko na spodku hubu.</li>
     </ol>
     <p class="hint">
       Dotyk během odpovědi ji utne. Po odpovědi Jarvis ještě deset vteřin poslouchá, jestli nechceš pokračovat.
+      Když Jarvis promluví sám od sebe (připomínka), čeká na odpověď nebo dotyk. Když nepřijde, zkusí to znovu.
     </p>
   </section>
 
@@ -111,7 +151,10 @@
       <tr><td>„Chybí nastavení“</td><td>nahraj znovu s vyplněným klíčem a Wi-Fi</td></tr>
       <tr><td>„Připojuji se k Wi-Fi“ nemizí</td><td>špatné heslo, nebo síť jen na 5 GHz</td></tr>
       <tr><td>„Gemini: API key not valid“</td><td>překlep v klíči</td></tr>
-      <tr><td>na „Jarvis“ nereaguje</td><td>řekni to anglicky [džárvis], pomaleji a blíž</td></tr>
+      <tr><td>na „Jarvisi“ nereaguje</td><td>řekni to pomaleji a blíž, případně anglicky [džárvis]</td></tr>
+      <tr><td>o tiskárně říká, že ji nenašel</td><td>tiskárna musí být zapnutá a na stejné Wi-Fi; jinak vyplň její IP a sériové číslo</td></tr>
+      <tr><td>tiskárna odmítá přístupový kód</td><td>opiš ho znovu z displeje tiskárny; po obnovení sítě se mění</td></tr>
+      <tr><td>kalendář se nenačetl</td><td>odkaz musí začínat webcal:// nebo https:// a kalendář musí být veřejný</td></tr>
     </table>
   </section>
 

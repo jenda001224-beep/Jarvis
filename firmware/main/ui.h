@@ -24,6 +24,8 @@ typedef enum {
 void ui_init(uint16_t *framebuffer);
 void ui_set_mode(ui_mode_t mode, const char *message);
 void ui_set_hub(ui_hub_t hub, int devices);
+void ui_set_notice(const char *text);
+void ui_set_status(const char *text);
 void ui_clear_transcript(void);
 void ui_append_heard(const char *text);
 void ui_append_spoken(const char *text);

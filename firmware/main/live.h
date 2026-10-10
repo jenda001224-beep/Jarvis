@@ -21,3 +21,4 @@ const char *live_close_reason(void);
 bool live_send_audio(const int16_t *pcm, size_t samples);
 void live_send_stream_end(void);
 void live_send_tool_response(const char *id, const char *name, const char *result_json);
+void live_send_text(const char *text);

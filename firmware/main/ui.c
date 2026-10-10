@@ -47,6 +47,7 @@ static lv_obj_t *clock_label;
 static lv_obj_t *date_label;
 static lv_obj_t *brand_label;
 static lv_obj_t *hint_label;
+static lv_obj_t *status_label;
 static lv_obj_t *hub_pill;
 static lv_obj_t *hub_label;
 static lv_obj_t *caption_label;
@@ -58,6 +59,8 @@ static ui_mode_t mode = UI_STARTING;
 static ui_hub_t hub_state = UI_HUB_HIDDEN;
 static char heard[HEARD_LIMIT + 8];
 static char spoken[SPOKEN_LIMIT + 8];
+static char hint[64];
+static char notice[64];
 static int last_minute = -1;
 static int brightness = -1;
 static bool idle_shown = true;
@@ -88,6 +91,7 @@ static void show_idle(bool visible)
     set_visible(clock_label, visible);
     set_visible(date_label, visible);
     set_visible(brand_label, visible);
+    set_visible(status_label, visible);
     bool pill = visible && (hub_state == UI_HUB_PAIR_OFFER || hub_state == UI_HUB_PAIRING);
     set_visible(hub_pill, pill);
     set_visible(hint_label, visible && !pill);
@@ -109,6 +113,13 @@ static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, uint32_t co
     lv_obj_set_style_text_letter_space(label, spacing, 0);
     lv_label_set_text(label, text);
     return label;
+}
+
+static void apply_hint(void)
+{
+    bool noticed = notice[0] && mode == UI_IDLE;
+    lv_obj_set_style_text_color(hint_label, lv_color_hex(noticed ? COLOR_ACCENT : COLOR_DIM), 0);
+    lv_label_set_text(hint_label, noticed ? notice : hint);
 }
 
 static void set_brightness(int value)
@@ -252,6 +263,8 @@ static void build(void)
 
     brand_label = make_label(screen, font_caption, COLOR_DIM, 3, "J.A.R.V.I.S.");
     lv_obj_align(brand_label, LV_ALIGN_TOP_LEFT, 24, 18);
+    status_label = make_label(screen, font_caption, COLOR_MUTED, 2, "");
+    lv_obj_align(status_label, LV_ALIGN_TOP_RIGHT, -24, 18);
 
     clock_label = make_label(screen, font_clock, COLOR_TEXT, 0, "--:--");
     lv_obj_align(clock_label, LV_ALIGN_TOP_MID, 0, 150);
@@ -350,11 +363,12 @@ void ui_set_mode(ui_mode_t next, const char *message)
             lv_label_set_text(spoken_label, message ? message : "");
         }
     } else {
-        const char *hint = next == UI_SETUP_NEEDED ? "CHYBÍ NASTAVENÍ · OTEVŘI FLASHER"
-                           : next == UI_OFFLINE    ? "PŘIPOJUJI WI-FI"
-                           : next == UI_IDLE       ? "ŘEKNI „JARVISI“"
-                                                   : "STARTUJI";
-        lv_label_set_text(hint_label, message ? message : hint);
+        const char *usual = next == UI_SETUP_NEEDED ? "CHYBÍ NASTAVENÍ · OTEVŘI FLASHER"
+                            : next == UI_OFFLINE    ? "PŘIPOJUJI WI-FI"
+                            : next == UI_IDLE       ? "ŘEKNI „JARVISI“"
+                                                    : "STARTUJI";
+        strlcpy(hint, message ? message : usual, sizeof(hint));
+        apply_hint();
     }
 
     if (now_voice && !was_voice) {
@@ -385,6 +399,21 @@ void ui_set_hub(ui_hub_t hub, int devices)
     if (idle_shown) {
         show_idle(true);
     }
+    bsp_display_unlock();
+}
+
+void ui_set_notice(const char *text)
+{
+    bsp_display_lock(0);
+    strlcpy(notice, text ? text : "", sizeof(notice));
+    apply_hint();
+    bsp_display_unlock();
+}
+
+void ui_set_status(const char *text)
+{
+    bsp_display_lock(0);
+    lv_label_set_text(status_label, text ? text : "");
     bsp_display_unlock();
 }
 
