@@ -7,6 +7,7 @@
 #include "audio.h"
 #include "bsp/esp-bsp.h"
 #include "cJSON.h"
+#include "display.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -29,6 +30,9 @@
 #define ERROR_SHOWN_MS 5000
 #define ECHO_GUARD_MS 300
 #define UPLINK_SAMPLES 1024
+#define REPORT_INTERVAL_MS 3000
+#define VOICE_LEVEL 30
+#define THINKING_AFTER_MS 700
 
 typedef enum {
     STATE_OFFLINE,
@@ -53,23 +57,38 @@ static const char PERSONA[] =
     "slov. Uživatel tě oslovuje Jarvisi; oslovení může na začátku nahrávky chybět nebo být uříznuté, neřeš to. "
     "Anglická jména interpretů, skladeb, filmů a aplikací vyslovuj anglicky. Aktuální věci jako počasí nebo zprávy "
     "si vyhledej. Když se uživatel neptá na konkrétní místo, myslí %s. Když něco nevíš nebo se něco nepovedlo, "
-    "řekni to krátce a na rovinu.";
+    "řekni to krátce a na rovinu. Hudbu zatím pouštět neumíš; když o ni uživatel požádá, řekni to jednou větou. "
+    "Tvůj displej umí posvítit: když uživatel řekne, ať mu dáš trochu světla, posvítíš nebo rozsvítíš displej, "
+    "zavolej display_light s on true. Když řekne, ať displej nebo to světlo zhasneš, zavolej display_light "
+    "s on false. Tenhle nástroj nepoužívej pro lampy, žárovky ani LED pásky.";
 
 static const char HOME[] =
-    "Ovládáš světla a zásuvky IKEA. Použij nástroj set_devices s id ze seznamu níže; stav zjistíš nástrojem "
-    "get_devices. Když uživatel neřekne, které světlo myslí, vyber všechna světla v místnosti, o které mluví, "
-    "a když neřekne ani místnost, vyber všechna světla. Nikdy neříkej, že jsi něco udělal, dokud nástroj "
-    "nevrátí výsledek.";
+    "Ovládáš světla, LED pásky a zásuvky IKEA. Použij nástroj set_devices s id ze seznamu níže; stav zjistíš "
+    "nástrojem get_devices. Barvu zadávej jako hue ve stupních (červená 0, oranžová 30, žlutá 55, zelená 120, "
+    "tyrkysová 180, modrá 240, fialová 275, růžová 320) a saturation v procentech; bílé odstíny přes kelvin "
+    "(teplá 2700, denní 4000, studená 6500). Když uživatel neřekne, které světlo myslí, vyber všechna světla "
+    "v místnosti, o které mluví, a když neřekne ani místnost, vyber všechna světla. Nikdy neříkej, že jsi něco "
+    "udělal, dokud nástroj nevrátí výsledek.";
 
-static const char FUNCTIONS[] =
-    "[{\"name\":\"set_devices\",\"description\":\"Zapne nebo vypne světla a zásuvky IKEA a nastaví jas světel.\","
+static const char DISPLAY_FUNCTION[] =
+    "{\"name\":\"display_light\",\"description\":\"Rozsvítí nebo zhasne displej asistenta jako bílou lampičku.\","
+    "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{"
+    "\"on\":{\"type\":\"BOOLEAN\",\"description\":\"true rozsvítit, false zhasnout\"}},"
+    "\"required\":[\"on\"]}}";
+
+static const char HOME_FUNCTIONS[] =
+    "{\"name\":\"set_devices\",\"description\":\"Zapne nebo vypne světla, LED pásky a zásuvky IKEA a nastaví jas "
+    "a barvu světel.\","
     "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{"
     "\"ids\":{\"type\":\"ARRAY\",\"items\":{\"type\":\"STRING\"},\"description\":\"ID zařízení ze seznamu\"},"
     "\"on\":{\"type\":\"BOOLEAN\",\"description\":\"true zapnout, false vypnout\"},"
-    "\"brightness\":{\"type\":\"INTEGER\",\"description\":\"Jas 1 až 100, jen pro světla\"}},"
+    "\"brightness\":{\"type\":\"INTEGER\",\"description\":\"Jas 1 až 100\"},"
+    "\"hue\":{\"type\":\"INTEGER\",\"description\":\"Odstín barvy 0 až 360 stupňů\"},"
+    "\"saturation\":{\"type\":\"INTEGER\",\"description\":\"Sytost 0 až 100, výchozí 100\"},"
+    "\"kelvin\":{\"type\":\"INTEGER\",\"description\":\"Teplota bílé 2000 až 6500\"}},"
     "\"required\":[\"ids\"]}},"
     "{\"name\":\"get_devices\",\"description\":\"Vrátí aktuální stav všech světel a zásuvek.\","
-    "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{}}}]";
+    "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{}}}";
 
 static QueueHandle_t events;
 static QueueHandle_t tool_calls;
@@ -83,6 +102,9 @@ static int64_t state_since;
 static int64_t session_since;
 static int64_t last_activity;
 static int64_t last_model_audio;
+static int64_t last_voice;
+static bool heard_any;
+static bool thinking;
 
 static int64_t now_ms(void)
 {
@@ -135,6 +157,16 @@ static void tool_task(void *arg)
         }
         ESP_LOGI(TAG, "tool %s %s", call.name, call.args);
         char *result = NULL;
+        if (strcmp(call.name, "display_light") == 0) {
+            cJSON *args = cJSON_Parse(call.args);
+            bool on = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(args, "on"));
+            cJSON_Delete(args);
+            ui_set_lamp(on);
+            live_send_tool_response(call.id, call.name, on ? "{\"result\":\"displej svítí\"}"
+                                                           : "{\"result\":\"displej zhasnutý\"}");
+            free(call.args);
+            continue;
+        }
         if (strcmp(call.name, "set_devices") == 0) {
             result = ikea_tool_set(call.args);
         } else if (strcmp(call.name, "get_devices") == 0) {
@@ -247,9 +279,11 @@ static void start_session(bool by_voice)
     }
     bool with_home = ikea_state() == IKEA_READY && ikea_device_count() > 0;
     char *instruction = build_instruction(with_home);
-    esp_err_t err = instruction
-                        ? live_open(instruction, with_home ? FUNCTIONS : NULL, search_allowed && settings_get()->search)
-                        : ESP_ERR_NO_MEM;
+    static char functions[sizeof(DISPLAY_FUNCTION) + sizeof(HOME_FUNCTIONS) + 8];
+    snprintf(functions, sizeof(functions), "[%s%s%s]", DISPLAY_FUNCTION, with_home ? "," : "",
+             with_home ? HOME_FUNCTIONS : "");
+    esp_err_t err =
+        instruction ? live_open(instruction, functions, search_allowed && settings_get()->search) : ESP_ERR_NO_MEM;
     free(instruction);
     if (err != ESP_OK) {
         fail("Nepodařilo se otevřít spojení");
@@ -258,8 +292,11 @@ static void start_session(bool by_voice)
     turn_complete = false;
     replied = false;
     new_turn = true;
+    heard_any = false;
+    thinking = false;
     uplink_enabled = true;
     session_since = now_ms();
+    last_voice = session_since;
     last_activity = session_since;
     ui_clear_transcript();
     enter(STATE_CONNECTING);
@@ -275,7 +312,10 @@ static void resume_listening(void)
     new_turn = true;
     turn_complete = false;
     replied = true;
+    heard_any = false;
+    thinking = false;
     last_activity = now_ms();
+    last_voice = last_activity;
     enter(STATE_LISTENING);
     ui_set_mode(UI_LISTENING, NULL);
 }
@@ -323,7 +363,9 @@ static void handle(app_event_t event)
         }
         break;
     case APP_EVENT_TOUCH:
-        if (state == STATE_IDLE) {
+        if (ui_lamp()) {
+            ui_set_lamp(false);
+        } else if (state == STATE_IDLE) {
             start_session(false);
         } else if (in_session || state == STATE_ERROR) {
             go_idle();
@@ -356,6 +398,7 @@ static void handle(app_event_t event)
         break;
     case APP_EVENT_HEARD:
         last_activity = now_ms();
+        heard_any = true;
         break;
     case APP_EVENT_SESSION_CLOSED:
         on_session_closed();
@@ -366,12 +409,36 @@ static void handle(app_event_t event)
     case APP_EVENT_HUB_CHANGED:
         show_hub();
         break;
+    case APP_EVENT_HUB_PAIRED:
+        settings_write_hub_token(ikea_token());
+        break;
     }
+}
+
+static void report(int64_t now)
+{
+    static int64_t last;
+    static uint32_t last_frames;
+    if (now - last < REPORT_INTERVAL_MS) {
+        return;
+    }
+    uint32_t frames = wake_frame_count();
+    int frames_per_second = 0;
+    int frame_microseconds = 0;
+    ui_render_stats(&frames_per_second, &frame_microseconds);
+    ESP_LOGI(TAG, "state %d, mic peak %d in %u frames, display %d fps at %d us, heap %u internal (lowest %u), %u external",
+             (int) state, wake_take_peak(), (unsigned) (frames - last_frames), frames_per_second, frame_microseconds,
+             (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned) heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned) heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    last = now;
+    last_frames = frames;
 }
 
 static void supervise(void)
 {
     int64_t now = now_ms();
+    report(now);
     switch (state) {
     case STATE_CONNECTING:
         if (now - state_since > CONNECT_TIMEOUT_MS) {
@@ -379,6 +446,13 @@ static void supervise(void)
         }
         break;
     case STATE_LISTENING:
+        if (wake_microphone_level() > VOICE_LEVEL) {
+            last_voice = now;
+        }
+        if (heard_any && thinking != (now - last_voice > THINKING_AFTER_MS)) {
+            thinking = !thinking;
+            ui_set_mode(thinking ? UI_THINKING : UI_LISTENING, NULL);
+        }
         if (now - last_activity > (replied ? FOLLOW_UP_TIMEOUT_MS : FIRST_TURN_TIMEOUT_MS) ||
             now - session_since > SESSION_LIMIT_MS) {
             go_idle();
@@ -401,27 +475,41 @@ static void supervise(void)
     }
 }
 
+static void checkpoint(const char *stage)
+{
+    ESP_LOGI(TAG, "%s: %u internal free, largest block %u", stage,
+             (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+}
+
 void app_main(void)
 {
+    checkpoint("boot");
     cJSON_Hooks hooks = {.malloc_fn = allocate_external, .free_fn = free};
     cJSON_InitHooks(&hooks);
     events = xQueueCreate(32, sizeof(app_event_t));
     tool_calls = xQueueCreate(4, sizeof(tool_call_t));
 
-    bsp_display_cfg_t display = {.lvgl_port_cfg = ESP_LVGL_PORT_INIT_CONFIG()};
-    display.lvgl_port_cfg.task_stack = 16384;
-    display.lvgl_port_cfg.task_stack_caps = MALLOC_CAP_SPIRAM;
-    bsp_display_start_with_config(&display);
+    uint16_t *framebuffer = NULL;
+    if (display_start(&framebuffer) != ESP_OK) {
+        ESP_LOGE(TAG, "display failed to start");
+    }
     bsp_display_backlight_on();
-    ui_init();
+    checkpoint("display");
+    ui_init(framebuffer);
     ui_set_mode(UI_STARTING, NULL);
+    checkpoint("ui");
 
     bool configured = settings_load();
     if (audio_init(settings_get()->volume) != ESP_OK) {
         ESP_LOGE(TAG, "audio failed to start");
-    } else if (wake_start() != ESP_OK) {
-        ESP_LOGE(TAG, "wake word failed to start");
+    } else {
+        checkpoint("audio");
+        if (wake_start() != ESP_OK) {
+            ESP_LOGE(TAG, "wake word failed to start");
+        }
     }
+    checkpoint("wake word");
     if (!configured) {
         ui_set_mode(UI_SETUP_NEEDED, NULL);
         vTaskDelete(NULL);
@@ -434,7 +522,10 @@ void app_main(void)
     xTaskCreatePinnedToCoreWithCaps(tool_task, "tools", 8192, NULL, 4, NULL, 0, MALLOC_CAP_SPIRAM);
     ui_set_mode(UI_OFFLINE, NULL);
     net_start(settings_get()->ssid, settings_get()->password);
-    ikea_start();
+    checkpoint("network");
+    static char hub_token[1536];
+    settings_read_hub_token(hub_token, sizeof(hub_token));
+    ikea_start(hub_token);
 
     for (;;) {
         app_event_t event;

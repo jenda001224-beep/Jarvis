@@ -11,13 +11,13 @@
 #include "esp_log.h"
 #include "esp_random.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "mbedtls/sha256.h"
 #include "mdns.h"
 #include "net.h"
 #include "proto.h"
-#include "settings.h"
 
 #define MAX_DEVICES 32
 #define RESPONSE_LIMIT (768 * 1024)
@@ -234,7 +234,7 @@ static bool pair(void)
         vTaskDelay(pdMS_TO_TICKS(PAIRING_INTERVAL_MS));
         if (request(HTTP_METHOD_POST, "/oauth/token", "application/x-www-form-urlencoded", form, false) == 200 &&
             response_string("access_token", token, sizeof(token))) {
-            settings_write_hub_token(token);
+            app_post(APP_EVENT_HUB_PAIRED);
             ESP_LOGI(TAG, "paired");
             return true;
         }
@@ -293,8 +293,6 @@ static int refresh(void)
 
 static void ikea_task(void *arg)
 {
-    token[0] = 0;
-    settings_read_hub_token(token, sizeof(token));
     for (;;) {
         uint32_t wait_ms = SEARCH_INTERVAL_MS;
         if (!net_connected()) {
@@ -337,11 +335,17 @@ static void ikea_task(void *arg)
     }
 }
 
-void ikea_start(void)
+void ikea_start(const char *stored_token)
 {
+    strlcpy(token, stored_token ? stored_token : "", sizeof(token));
     lock = xSemaphoreCreateMutex();
     table_lock = xSemaphoreCreateMutex();
-    xTaskCreatePinnedToCore(ikea_task, "ikea", 8192, NULL, 3, &task, 0);
+    xTaskCreatePinnedToCoreWithCaps(ikea_task, "ikea", 8192, NULL, 3, &task, 0, MALLOC_CAP_SPIRAM);
+}
+
+const char *ikea_token(void)
+{
+    return token;
 }
 
 ikea_state_t ikea_state(void)
@@ -457,9 +461,13 @@ char *ikea_tool_set(const char *args_json)
     const cJSON *ids = cJSON_GetObjectItemCaseSensitive(args, "ids");
     const cJSON *on = cJSON_GetObjectItemCaseSensitive(args, "on");
     const cJSON *brightness = cJSON_GetObjectItemCaseSensitive(args, "brightness");
-    if (!cJSON_IsArray(ids) || (!cJSON_IsBool(on) && !cJSON_IsNumber(brightness))) {
+    const cJSON *hue = cJSON_GetObjectItemCaseSensitive(args, "hue");
+    const cJSON *saturation = cJSON_GetObjectItemCaseSensitive(args, "saturation");
+    const cJSON *kelvin = cJSON_GetObjectItemCaseSensitive(args, "kelvin");
+    bool anything = cJSON_IsBool(on) || cJSON_IsNumber(brightness) || cJSON_IsNumber(hue) || cJSON_IsNumber(kelvin);
+    if (!cJSON_IsArray(ids) || !anything) {
         cJSON_Delete(args);
-        return error_result("chybí ids a on nebo brightness");
+        return error_result("chybí ids a aspoň jedno z on, brightness, hue, kelvin");
     }
     int changed = 0;
     int failed = 0;
@@ -480,6 +488,20 @@ char *ikea_tool_set(const char *args_json)
             int level = brightness->valueint < 1 ? 1 : brightness->valueint > 100 ? 100 : brightness->valueint;
             char attribute[32];
             snprintf(attribute, sizeof(attribute), "\"lightLevel\":%d", level);
+            ok = patch(device, attribute);
+        }
+        if (ok && cJSON_IsNumber(hue) && device->light) {
+            double degrees = hue->valuedouble < 0 ? 0 : hue->valuedouble > 360 ? 360 : hue->valuedouble;
+            double amount = cJSON_IsNumber(saturation) ? saturation->valuedouble : 100.0;
+            amount = amount < 0 ? 0 : amount > 100 ? 100 : amount;
+            char attribute[72];
+            snprintf(attribute, sizeof(attribute), "\"colorHue\":%d,\"colorSaturation\":%.2f", (int) degrees,
+                     amount / 100.0);
+            ok = patch(device, attribute);
+        } else if (ok && cJSON_IsNumber(kelvin) && device->light) {
+            int value = kelvin->valueint < 2000 ? 2000 : kelvin->valueint > 6500 ? 6500 : kelvin->valueint;
+            char attribute[40];
+            snprintf(attribute, sizeof(attribute), "\"colorTemperature\":%d", value);
             ok = patch(device, attribute);
         }
         if (ok) {

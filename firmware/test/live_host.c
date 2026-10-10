@@ -57,7 +57,8 @@ static void on_tool(void *ctx, const char *id, const char *name, const char *arg
     const char *result = strcmp(name, "get_devices") == 0
                              ? "{\"devices\":[{\"id\":\"lamp_1\",\"name\":\"Lampa\",\"room\":\"Obývák\","
                                "\"type\":\"light\",\"on\":true,\"brightness\":80}]}"
-                             : "{\"result\":\"ok\",\"changed\":1,\"failed\":0}";
+                             : strcmp(name, "display_light") == 0 ? "{\"result\":\"displej svítí\"}"
+                                                                  : "{\"result\":\"ok\",\"changed\":1,\"failed\":0}";
     char *message = proto_build_tool_response(id, name, result);
     printf("SEND %s\n", message);
     proto_free(message);

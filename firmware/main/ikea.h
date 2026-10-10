@@ -10,7 +10,8 @@ typedef enum {
     IKEA_READY,
 } ikea_state_t;
 
-void ikea_start(void);
+void ikea_start(const char *stored_token);
+const char *ikea_token(void);
 ikea_state_t ikea_state(void);
 int ikea_device_count(void);
 void ikea_request_pairing(void);

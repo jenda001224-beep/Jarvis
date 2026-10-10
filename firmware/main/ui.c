@@ -2,88 +2,113 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <sys/time.h>
 #include <time.h>
 
 #include "app.h"
 #include "audio.h"
 #include "bsp/esp-bsp.h"
+#include "esp_heap_caps.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
+#include "freertos/task.h"
+#include "fx.h"
 #include "lvgl.h"
 #include "net.h"
+#include "scene.h"
 #include "wake.h"
 
-#define COLOR_BACKGROUND 0x05080C
-#define COLOR_ACCENT 0x19C8FF
-#define COLOR_ACCENT_DEEP 0x0A4DFF
-#define COLOR_ERROR 0xFF4D5E
-#define COLOR_TEXT 0xF2F6FA
-#define COLOR_MUTED 0x7C8B99
-#define COLOR_DIM 0x5B6B7A
-#define COLOR_FAINT 0x3F4D5B
-#define COLOR_CARD 0x0E141B
-#define COLOR_LINE 0x1C2733
+#define COLOR_ACCENT 0x5BD7FF
+#define COLOR_ERROR 0xFF5C4A
+#define COLOR_TEXT 0xF5F9FF
+#define COLOR_MUTED 0x8DA2B5
+#define COLOR_DIM 0x51606E
+#define COLOR_PILL 0x0B1219
 
-#define HEARD_LIMIT 42
-#define SPOKEN_LIMIT 150
+#define HEARD_LIMIT 46
+#define SPOKEN_LIMIT 68
 #define BRIGHTNESS_ACTIVE 100
 #define BRIGHTNESS_IDLE 45
 #define DIM_AFTER_MS 60000
+#define FRAME_MS 33
+#define VOICE_TEXT_DELAY_MS 420
+#define TICK_MS 50
 
-#define ICON_MICROPHONE "\xF3\xB0\x8D\xAC"
-
-extern const uint8_t inter_200_ttf_start[] asm("_binary_inter_200_ttf_start");
-extern const uint8_t inter_200_ttf_end[] asm("_binary_inter_200_ttf_end");
 extern const uint8_t inter_400_ttf_start[] asm("_binary_inter_400_ttf_start");
 extern const uint8_t inter_400_ttf_end[] asm("_binary_inter_400_ttf_end");
 extern const uint8_t inter_500_ttf_start[] asm("_binary_inter_500_ttf_start");
 extern const uint8_t inter_500_ttf_end[] asm("_binary_inter_500_ttf_end");
 extern const uint8_t inter_clock_ttf_start[] asm("_binary_inter_clock_ttf_start");
 extern const uint8_t inter_clock_ttf_end[] asm("_binary_inter_clock_ttf_end");
-extern const uint8_t icons_ttf_start[] asm("_binary_icons_ttf_start");
-extern const uint8_t icons_ttf_end[] asm("_binary_icons_ttf_end");
 
+static uint16_t *pixels;
 static lv_obj_t *clock_label;
 static lv_obj_t *date_label;
+static lv_obj_t *brand_label;
 static lv_obj_t *hint_label;
-static lv_obj_t *status_dot;
-static lv_obj_t *hub_button;
+static lv_obj_t *hub_pill;
 static lv_obj_t *hub_label;
-static lv_obj_t *overlay;
-static lv_obj_t *ring_outer;
-static lv_obj_t *ring_middle;
-static lv_obj_t *ring_core;
-static lv_obj_t *state_label;
+static lv_obj_t *caption_label;
 static lv_obj_t *heard_label;
 static lv_obj_t *spoken_label;
+static lv_obj_t *lamp_cover;
 
 static ui_mode_t mode = UI_STARTING;
+static ui_hub_t hub_state = UI_HUB_HIDDEN;
 static char heard[HEARD_LIMIT + 8];
 static char spoken[SPOKEN_LIMIT + 8];
-static float level;
-static int last_core;
 static int last_minute = -1;
 static int brightness = -1;
+static bool idle_shown = true;
+static bool voice_shown;
+static bool returning;
+static uint32_t voice_text_at;
+static volatile bool lamp;
+static volatile int stat_frames;
+static volatile int stat_microseconds;
 
-static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, uint32_t color, const char *text)
+static bool is_voice(ui_mode_t value)
+{
+    return value == UI_LISTENING || value == UI_THINKING || value == UI_SPEAKING || value == UI_ERROR;
+}
+
+static void set_visible(lv_obj_t *object, bool visible)
+{
+    if (visible) {
+        lv_obj_remove_flag(object, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(object, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void show_idle(bool visible)
+{
+    idle_shown = visible;
+    set_visible(clock_label, visible);
+    set_visible(date_label, visible);
+    set_visible(brand_label, visible);
+    bool pill = visible && (hub_state == UI_HUB_PAIR_OFFER || hub_state == UI_HUB_PAIRING);
+    set_visible(hub_pill, pill);
+    set_visible(hint_label, visible && !pill);
+}
+
+static void show_voice(bool visible)
+{
+    voice_shown = visible;
+    set_visible(caption_label, visible);
+    set_visible(heard_label, visible);
+    set_visible(spoken_label, visible);
+}
+
+static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, uint32_t color, int spacing, const char *text)
 {
     lv_obj_t *label = lv_label_create(parent);
     lv_obj_set_style_text_font(label, font, 0);
     lv_obj_set_style_text_color(label, lv_color_hex(color), 0);
+    lv_obj_set_style_text_letter_space(label, spacing, 0);
     lv_label_set_text(label, text);
     return label;
-}
-
-static lv_obj_t *make_ring(lv_obj_t *parent, int size, int border, lv_opa_t opacity)
-{
-    lv_obj_t *ring = lv_obj_create(parent);
-    lv_obj_remove_style_all(ring);
-    lv_obj_set_size(ring, size, size);
-    lv_obj_center(ring);
-    lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_border_width(ring, border, 0);
-    lv_obj_set_style_border_color(ring, lv_color_hex(COLOR_ACCENT), 0);
-    lv_obj_set_style_border_opa(ring, opacity, 0);
-    lv_obj_remove_flag(ring, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-    return ring;
 }
 
 static void set_brightness(int value)
@@ -107,7 +132,7 @@ static void append_tail(char *buffer, size_t limit, const char *text)
         while (cut < have && buffer[cut] != ' ') {
             cut++;
         }
-        while (cut < have && ((unsigned char) buffer[cut] & 0xC0) == 0x80) {
+        while (cut < have && (buffer[cut] == ' ' || ((unsigned char) buffer[cut] & 0xC0) == 0x80)) {
             cut++;
         }
         memmove(buffer, buffer + cut, have - cut + 1);
@@ -123,9 +148,9 @@ static void append_tail(char *buffer, size_t limit, const char *text)
 
 static void refresh_clock(void)
 {
-    static const char *const DAYS[] = {"neděle", "pondělí", "úterý", "středa", "čtvrtek", "pátek", "sobota"};
-    static const char *const MONTHS[] = {"ledna",    "února", "března", "dubna", "května",    "června",
-                                         "července", "srpna", "září",   "října", "listopadu", "prosince"};
+    static const char *const DAYS[] = {"NEDĚLE", "PONDĚLÍ", "ÚTERÝ", "STŘEDA", "ČTVRTEK", "PÁTEK", "SOBOTA"};
+    static const char *const MONTHS[] = {"LEDNA",    "ÚNORA", "BŘEZNA", "DUBNA", "KVĚTNA",    "ČERVNA",
+                                         "ČERVENCE", "SRPNA", "ZÁŘÍ",   "ŘÍJNA", "LISTOPADU", "PROSINCE"};
     if (!net_time_valid()) {
         return;
     }
@@ -143,26 +168,20 @@ static void refresh_clock(void)
 static void on_tick(lv_timer_t *timer)
 {
     static int ticks;
-    if (++ticks % 20 == 0) {
+    if (++ticks % (1000 / TICK_MS) == 0) {
         refresh_clock();
-        bool active = mode != UI_IDLE || lv_display_get_inactive_time(NULL) < DIM_AFTER_MS;
+        bool active = lamp || mode != UI_IDLE || lv_display_get_inactive_time(NULL) < DIM_AFTER_MS;
         set_brightness(active ? BRIGHTNESS_ACTIVE : BRIGHTNESS_IDLE);
     }
-    if (mode != UI_LISTENING && mode != UI_SPEAKING) {
-        return;
+    if (voice_text_at && is_voice(mode) && lv_tick_get() >= voice_text_at) {
+        voice_text_at = 0;
+        show_voice(true);
     }
-    float target = (mode == UI_LISTENING ? wake_microphone_level() : audio_output_level()) / 100.0f;
-    level += (target - level) * 0.45f;
-    int core = 100 + (int) (level * 50.0f);
-    if (core == last_core) {
-        return;
+    if (returning && !is_voice(mode) && scene_settled()) {
+        returning = false;
+        scene_set_hole(true);
+        show_idle(true);
     }
-    last_core = core;
-    int middle = core + 36 + (int) (level * 34.0f);
-    int outer = middle + 36 + (int) (level * 34.0f);
-    lv_obj_set_size(ring_core, core, core);
-    lv_obj_set_size(ring_middle, middle, middle);
-    lv_obj_set_size(ring_outer, outer, outer);
 }
 
 static void on_screen_click(lv_event_t *event)
@@ -172,195 +191,199 @@ static void on_screen_click(lv_event_t *event)
 
 static void on_hub_click(lv_event_t *event)
 {
-    lv_event_stop_bubbling(event);
     app_post(APP_EVENT_PAIR_REQUEST);
+}
+
+static void render_task(void *arg)
+{
+    fx_frame_t frame = {0};
+    int64_t last = esp_timer_get_time();
+    int64_t window = last;
+    int frames = 0;
+    int64_t spent = 0;
+    TickType_t wake = xTaskGetTickCount();
+    for (;;) {
+        int64_t now = esp_timer_get_time();
+        float seconds = (now - last) / 1000000.0f;
+        last = now;
+        if (net_time_valid()) {
+            struct timeval moment;
+            gettimeofday(&moment, NULL);
+            scene_set_minute(((moment.tv_sec % 60) + moment.tv_usec / 1000000.0f) / 60.0f);
+        }
+        scene_set_levels(wake_microphone_level() / 100.0f, audio_output_level() / 100.0f);
+        scene_step(seconds, &frame);
+        if (!lamp) {
+            fx_render(&frame, pixels);
+        }
+        spent += esp_timer_get_time() - now;
+        frames++;
+        if (now - window >= 3000000) {
+            stat_frames = (int) (frames * 1000000LL / (now - window));
+            stat_microseconds = (int) (spent / frames);
+            window = now;
+            frames = 0;
+            spent = 0;
+        }
+        vTaskDelayUntil(&wake, pdMS_TO_TICKS(FRAME_MS));
+    }
+}
+
+static void *allocate_external(size_t size)
+{
+    return heap_caps_malloc(size, MALLOC_CAP_SPIRAM);
 }
 
 static void build(void)
 {
     lv_font_t *font_clock =
-        lv_tiny_ttf_create_data(inter_clock_ttf_start, inter_clock_ttf_end - inter_clock_ttf_start, 124);
-    lv_font_t *font_title = lv_tiny_ttf_create_data(inter_500_ttf_start, inter_500_ttf_end - inter_500_ttf_start, 22);
+        lv_tiny_ttf_create_data(inter_clock_ttf_start, inter_clock_ttf_end - inter_clock_ttf_start, 92);
+    lv_font_t *font_caption = lv_tiny_ttf_create_data(inter_500_ttf_start, inter_500_ttf_end - inter_500_ttf_start, 12);
+    lv_font_t *font_small = lv_tiny_ttf_create_data(inter_500_ttf_start, inter_500_ttf_end - inter_500_ttf_start, 13);
+    lv_font_t *font_heard = lv_tiny_ttf_create_data(inter_400_ttf_start, inter_400_ttf_end - inter_400_ttf_start, 17);
     lv_font_t *font_body = lv_tiny_ttf_create_data(inter_400_ttf_start, inter_400_ttf_end - inter_400_ttf_start, 20);
-    lv_font_t *font_small = lv_tiny_ttf_create_data(inter_500_ttf_start, inter_500_ttf_end - inter_500_ttf_start, 15);
-    lv_font_t *font_icon = lv_tiny_ttf_create_data(icons_ttf_start, icons_ttf_end - icons_ttf_start, 40);
 
     lv_obj_t *screen = lv_screen_active();
-    lv_obj_set_style_bg_color(screen, lv_color_hex(COLOR_BACKGROUND), 0);
+    lv_obj_set_style_bg_color(screen, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
     lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(screen, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(screen, on_screen_click, LV_EVENT_CLICKED, NULL);
 
-    lv_obj_t *brand = make_label(screen, font_small, COLOR_DIM, "J.A.R.V.I.S.");
-    lv_obj_set_style_text_letter_space(brand, 3, 0);
-    lv_obj_align(brand, LV_ALIGN_TOP_LEFT, 26, 22);
+    brand_label = make_label(screen, font_caption, COLOR_DIM, 3, "J.A.R.V.I.S.");
+    lv_obj_align(brand_label, LV_ALIGN_TOP_LEFT, 24, 18);
 
-    status_dot = lv_obj_create(screen);
-    lv_obj_remove_style_all(status_dot);
-    lv_obj_set_size(status_dot, 10, 10);
-    lv_obj_set_style_radius(status_dot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_opa(status_dot, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(status_dot, lv_color_hex(COLOR_FAINT), 0);
-    lv_obj_align(status_dot, LV_ALIGN_TOP_RIGHT, -26, 26);
+    clock_label = make_label(screen, font_clock, COLOR_TEXT, 0, "--:--");
+    lv_obj_align(clock_label, LV_ALIGN_TOP_MID, 0, 150);
+    date_label = make_label(screen, font_small, COLOR_MUTED, 3, "");
+    lv_obj_align(date_label, LV_ALIGN_TOP_MID, 0, 264);
 
-    clock_label = make_label(screen, font_clock, COLOR_TEXT, "--:--");
-    lv_obj_align(clock_label, LV_ALIGN_TOP_MID, 0, 86);
-    date_label = make_label(screen, font_body, COLOR_MUTED, "");
-    lv_obj_align(date_label, LV_ALIGN_TOP_MID, 0, 236);
-    hint_label = make_label(screen, font_small, COLOR_FAINT, "Startuji");
-    lv_obj_set_width(hint_label, 430);
+    hint_label = make_label(screen, font_caption, COLOR_DIM, 3, "STARTUJI");
+    lv_obj_set_width(hint_label, 440);
     lv_obj_set_style_text_align(hint_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(hint_label, LV_ALIGN_TOP_MID, 0, 272);
+    lv_obj_align(hint_label, LV_ALIGN_TOP_MID, 0, 442);
 
-    hub_button = lv_obj_create(screen);
-    lv_obj_remove_style_all(hub_button);
-    lv_obj_set_size(hub_button, 432, 64);
-    lv_obj_align(hub_button, LV_ALIGN_BOTTOM_MID, 0, -24);
-    lv_obj_set_style_radius(hub_button, 22, 0);
-    lv_obj_set_style_bg_color(hub_button, lv_color_hex(COLOR_CARD), 0);
-    lv_obj_set_style_bg_opa(hub_button, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(hub_button, 1, 0);
-    lv_obj_set_style_border_color(hub_button, lv_color_hex(COLOR_LINE), 0);
-    lv_obj_remove_flag(hub_button, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(hub_button, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_event_cb(hub_button, on_hub_click, LV_EVENT_CLICKED, NULL);
-    hub_label = make_label(hub_button, font_small, COLOR_TEXT, "");
+    hub_pill = lv_obj_create(screen);
+    lv_obj_remove_style_all(hub_pill);
+    lv_obj_set_size(hub_pill, 340, 38);
+    lv_obj_align(hub_pill, LV_ALIGN_TOP_MID, 0, 430);
+    lv_obj_set_style_radius(hub_pill, 19, 0);
+    lv_obj_set_style_bg_color(hub_pill, lv_color_hex(COLOR_PILL), 0);
+    lv_obj_set_style_bg_opa(hub_pill, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(hub_pill, 1, 0);
+    lv_obj_set_style_border_color(hub_pill, lv_color_hex(COLOR_ACCENT), 0);
+    lv_obj_remove_flag(hub_pill, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(hub_pill, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_event_cb(hub_pill, on_hub_click, LV_EVENT_CLICKED, NULL);
+    hub_label = make_label(hub_pill, font_caption, COLOR_TEXT, 2, "");
     lv_obj_center(hub_label);
 
-    overlay = lv_obj_create(lv_layer_top());
-    lv_obj_remove_style_all(overlay);
-    lv_obj_set_size(overlay, 480, 480);
-    lv_obj_set_style_bg_color(overlay, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
-    lv_obj_remove_flag(overlay, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_event_cb(overlay, on_screen_click, LV_EVENT_CLICKED, NULL);
+    caption_label = make_label(screen, font_caption, COLOR_ACCENT, 4, "");
+    lv_obj_set_width(caption_label, 400);
+    lv_obj_set_style_text_align(caption_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(caption_label, LV_ALIGN_TOP_MID, 0, 350);
 
-    lv_obj_t *ring_box = lv_obj_create(overlay);
-    lv_obj_remove_style_all(ring_box);
-    lv_obj_set_size(ring_box, 300, 300);
-    lv_obj_align(ring_box, LV_ALIGN_TOP_MID, 0, 8);
-    lv_obj_remove_flag(ring_box, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-    ring_outer = make_ring(ring_box, 180, 2, LV_OPA_30);
-    ring_middle = make_ring(ring_box, 140, 3, LV_OPA_60);
-    ring_core = make_ring(ring_box, 100, 0, LV_OPA_TRANSP);
-    lv_obj_set_style_bg_color(ring_core, lv_color_hex(COLOR_ACCENT), 0);
-    lv_obj_set_style_bg_grad_color(ring_core, lv_color_hex(COLOR_ACCENT_DEEP), 0);
-    lv_obj_set_style_bg_grad_dir(ring_core, LV_GRAD_DIR_VER, 0);
-    lv_obj_set_style_bg_opa(ring_core, LV_OPA_COVER, 0);
-    lv_obj_t *icon = make_label(ring_core, font_icon, 0x04121C, ICON_MICROPHONE);
-    lv_obj_center(icon);
-
-    state_label = make_label(overlay, font_small, COLOR_ACCENT, "");
-    lv_obj_set_style_text_letter_space(state_label, 2, 0);
-    lv_obj_align(state_label, LV_ALIGN_TOP_MID, 0, 314);
-
-    heard_label = make_label(overlay, font_body, COLOR_MUTED, "");
-    lv_obj_set_size(heard_label, 432, 26);
+    heard_label = make_label(screen, font_heard, COLOR_MUTED, 0, "");
+    lv_obj_set_size(heard_label, 400, 24);
     lv_obj_set_style_text_align(heard_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(heard_label, LV_LABEL_LONG_MODE_CLIP);
-    lv_obj_align(heard_label, LV_ALIGN_TOP_MID, 0, 342);
+    lv_obj_align(heard_label, LV_ALIGN_TOP_MID, 0, 368);
 
-    spoken_label = make_label(overlay, font_body, COLOR_TEXT, "");
-    lv_obj_set_size(spoken_label, 432, 98);
+    spoken_label = make_label(screen, font_body, COLOR_TEXT, 0, "");
+    lv_obj_set_size(spoken_label, 400, 50);
     lv_obj_set_style_text_align(spoken_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(spoken_label, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_align(spoken_label, LV_ALIGN_TOP_MID, 0, 374);
+    lv_obj_align(spoken_label, LV_ALIGN_TOP_MID, 0, 394);
 
-    (void) font_title;
-    lv_timer_create(on_tick, 50, NULL);
+    lamp_cover = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(lamp_cover);
+    lv_obj_set_size(lamp_cover, FX_WIDTH, FX_HEIGHT);
+    lv_obj_set_style_bg_color(lamp_cover, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_bg_opa(lamp_cover, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(lamp_cover, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(lamp_cover, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_event_cb(lamp_cover, on_screen_click, LV_EVENT_CLICKED, NULL);
+
+    show_voice(false);
+    show_idle(true);
+    lv_timer_create(on_tick, TICK_MS, NULL);
 }
 
-void ui_init(void)
+void ui_init(uint16_t *framebuffer)
 {
+    pixels = framebuffer;
+    scene_init();
+    scene_set_hole(true);
     bsp_display_lock(0);
     build();
+    lv_refr_now(NULL);
     bsp_display_unlock();
     set_brightness(BRIGHTNESS_ACTIVE);
+    if (pixels && fx_init(allocate_external)) {
+        xTaskCreatePinnedToCoreWithCaps(render_task, "render", 6144, NULL, 3, NULL, 0, MALLOC_CAP_SPIRAM);
+    }
 }
 
 void ui_set_mode(ui_mode_t next, const char *message)
 {
+    static const scene_mode_t SCENES[] = {
+        [UI_STARTING] = SCENE_IDLE, [UI_SETUP_NEEDED] = SCENE_IDLE, [UI_OFFLINE] = SCENE_IDLE,
+        [UI_IDLE] = SCENE_IDLE,     [UI_LISTENING] = SCENE_LISTENING, [UI_THINKING] = SCENE_THINKING,
+        [UI_SPEAKING] = SCENE_SPEAKING, [UI_ERROR] = SCENE_ERROR,
+    };
     bsp_display_lock(0);
+    bool was_voice = is_voice(mode);
+    bool now_voice = is_voice(next);
     mode = next;
     lv_display_trigger_activity(NULL);
-    bool voice = next == UI_LISTENING || next == UI_SPEAKING || next == UI_ERROR;
-    if (voice) {
-        lv_obj_remove_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+
+    if (now_voice) {
+        uint32_t color = next == UI_ERROR ? COLOR_ERROR : COLOR_ACCENT;
+        lv_obj_set_style_text_color(caption_label, lv_color_hex(color), 0);
+        const char *caption = next == UI_LISTENING  ? "POSLOUCHÁM"
+                              : next == UI_THINKING ? "PŘEMÝŠLÍM"
+                              : next == UI_SPEAKING ? "JARVIS"
+                                                    : "NĚCO SE NEPOVEDLO";
+        lv_label_set_text(caption_label, caption);
+        if (next == UI_ERROR) {
+            lv_label_set_text(heard_label, "");
+            lv_label_set_text(spoken_label, message ? message : "");
+        }
     } else {
-        lv_obj_add_flag(overlay, LV_OBJ_FLAG_HIDDEN);
-    }
-    uint32_t accent = next == UI_ERROR ? COLOR_ERROR : COLOR_ACCENT;
-    lv_obj_set_style_bg_color(ring_core, lv_color_hex(accent), 0);
-    lv_obj_set_style_bg_grad_color(ring_core, lv_color_hex(next == UI_ERROR ? COLOR_ERROR : COLOR_ACCENT_DEEP), 0);
-    lv_obj_set_style_border_color(ring_middle, lv_color_hex(accent), 0);
-    lv_obj_set_style_border_color(ring_outer, lv_color_hex(accent), 0);
-    lv_obj_set_style_text_color(state_label, lv_color_hex(accent), 0);
-    if (next == UI_ERROR) {
-        lv_obj_set_size(ring_core, 100, 100);
-        lv_obj_set_size(ring_middle, 140, 140);
-        lv_obj_set_size(ring_outer, 180, 180);
-        last_core = 100;
-        level = 0;
-        lv_label_set_text(state_label, "NĚCO SE NEPOVEDLO");
-        lv_label_set_text(heard_label, "");
-        lv_label_set_text(spoken_label, message ? message : "");
-    } else if (next == UI_LISTENING) {
-        lv_label_set_text(state_label, "POSLOUCHÁM");
-    } else if (next == UI_SPEAKING) {
-        lv_label_set_text(state_label, "ODPOVÍDÁM");
+        const char *hint = next == UI_SETUP_NEEDED ? "CHYBÍ NASTAVENÍ · OTEVŘI FLASHER"
+                           : next == UI_OFFLINE    ? "PŘIPOJUJI WI-FI"
+                           : next == UI_IDLE       ? "ŘEKNI „JARVISI“"
+                                                   : "STARTUJI";
+        lv_label_set_text(hint_label, message ? message : hint);
     }
 
-    uint32_t dot = COLOR_FAINT;
-    const char *hint = "Startuji";
-    switch (next) {
-    case UI_SETUP_NEEDED:
-        hint = "Chybí nastavení. Otevři web flasher a nahraj Wi-Fi a klíč.";
-        dot = COLOR_ERROR;
-        break;
-    case UI_OFFLINE:
-        hint = "Připojuji se k Wi-Fi";
-        break;
-    case UI_IDLE:
-        hint = "Řekni „Jarvis“ nebo se dotkni displeje";
-        dot = COLOR_ACCENT;
-        break;
-    case UI_LISTENING:
-    case UI_SPEAKING:
-        hint = "";
-        dot = COLOR_ACCENT;
-        break;
-    case UI_ERROR:
-        hint = "";
-        dot = COLOR_ERROR;
-        break;
-    default:
-        break;
+    if (now_voice && !was_voice) {
+        returning = false;
+        show_idle(false);
+        lv_refr_now(NULL);
+        scene_set_hole(false);
+        voice_text_at = lv_tick_get() + VOICE_TEXT_DELAY_MS;
+    } else if (!now_voice && was_voice) {
+        voice_text_at = 0;
+        show_voice(false);
+        lv_refr_now(NULL);
+        returning = true;
     }
-    if (message && next != UI_ERROR) {
-        hint = message;
-    }
-    lv_label_set_text(hint_label, hint);
-    lv_obj_set_style_bg_color(status_dot, lv_color_hex(dot), 0);
+    scene_set_mode(SCENES[next]);
     bsp_display_unlock();
 }
 
 void ui_set_hub(ui_hub_t hub, int devices)
 {
     bsp_display_lock(0);
-    if (hub == UI_HUB_HIDDEN) {
-        lv_obj_add_flag(hub_button, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_remove_flag(hub_button, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_set_style_border_color(hub_button, lv_color_hex(hub == UI_HUB_READY ? COLOR_LINE : COLOR_ACCENT), 0);
-        if (hub == UI_HUB_PAIR_OFFER) {
-            lv_label_set_text(hub_label, "Našel jsem IKEA hub. Dotkni se tady pro spárování.");
-        } else if (hub == UI_HUB_PAIRING) {
-            lv_label_set_text(hub_label, "Stiskni tlačítko na spodku hubu DIRIGERA");
-        } else {
-            lv_label_set_text_fmt(hub_label, "IKEA: %d světel a zásuvek", devices);
-        }
+    hub_state = hub;
+    if (hub == UI_HUB_PAIR_OFFER) {
+        lv_label_set_text(hub_label, "DOTKNI SE PRO SPÁROVÁNÍ S IKEA");
+    } else if (hub == UI_HUB_PAIRING) {
+        lv_label_set_text(hub_label, "STISKNI TLAČÍTKO NA SPODKU HUBU");
+    }
+    if (idle_shown) {
+        show_idle(true);
     }
     bsp_display_unlock();
 }
@@ -389,4 +412,28 @@ void ui_append_spoken(const char *text)
     append_tail(spoken, SPOKEN_LIMIT, text);
     lv_label_set_text(spoken_label, spoken);
     bsp_display_unlock();
+}
+
+void ui_set_lamp(bool on)
+{
+    bsp_display_lock(0);
+    lamp = on;
+    set_visible(lamp_cover, on);
+    lv_display_trigger_activity(NULL);
+    if (on) {
+        set_brightness(BRIGHTNESS_ACTIVE);
+    }
+    lv_refr_now(NULL);
+    bsp_display_unlock();
+}
+
+bool ui_lamp(void)
+{
+    return lamp;
+}
+
+void ui_render_stats(int *frames_per_second, int *microseconds_per_frame)
+{
+    *frames_per_second = stat_frames;
+    *microseconds_per_frame = stat_microseconds;
 }

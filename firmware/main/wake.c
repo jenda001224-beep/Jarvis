@@ -8,6 +8,7 @@
 #include "esp_afe_sr_models.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "freertos/idf_additions.h"
 #include "freertos/stream_buffer.h"
 #include "freertos/task.h"
 #include "model_path.h"
@@ -25,6 +26,8 @@ static volatile bool armed;
 static volatile bool capturing;
 static volatile bool clear_requested;
 static volatile int level;
+static volatile int peak;
+static volatile uint32_t frames;
 
 static void feed_task(void *arg)
 {
@@ -58,7 +61,19 @@ static void fetch_task(void *arg)
             app_post(APP_EVENT_WAKE);
             continue;
         }
-        level = audio_level_of(result->data, result->data_size / sizeof(int16_t));
+        size_t samples = result->data_size / sizeof(int16_t);
+        level = audio_level_of(result->data, samples);
+        int loudest = 0;
+        for (size_t i = 0; i < samples; i++) {
+            int magnitude = result->data[i] < 0 ? -result->data[i] : result->data[i];
+            if (magnitude > loudest) {
+                loudest = magnitude;
+            }
+        }
+        if (loudest > peak) {
+            peak = loudest;
+        }
+        frames++;
         if (capturing) {
             xStreamBufferSend(capture_buffer, result->data, result->data_size, 0);
         }
@@ -83,6 +98,8 @@ esp_err_t wake_start(void)
     config->wakenet_init = true;
     config->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
     config->afe_perferred_core = 1;
+    ESP_LOGI(TAG, "afe agc %d mode %d, linear gain %.2f, ringbuf %d", (int) config->agc_init, (int) config->agc_mode,
+             (double) config->afe_linear_gain, config->afe_ringbuf_size);
     afe = esp_afe_handle_from_config(config);
     afe_data = afe ? afe->create_from_config(config) : NULL;
     afe_config_free(config);
@@ -96,8 +113,8 @@ esp_err_t wake_start(void)
     }
     capture_buffer = xStreamBufferCreateStatic(CAPTURE_BYTES, 2, storage, &capture_buffer_state);
     armed = true;
-    xTaskCreatePinnedToCore(feed_task, "afe_feed", 8192, NULL, 5, NULL, 0);
-    xTaskCreatePinnedToCore(fetch_task, "afe_fetch", 8192, NULL, 5, NULL, 1);
+    xTaskCreatePinnedToCoreWithCaps(feed_task, "afe_feed", 8192, NULL, 5, NULL, 0, MALLOC_CAP_SPIRAM);
+    xTaskCreatePinnedToCoreWithCaps(fetch_task, "afe_fetch", 8192, NULL, 5, NULL, 1, MALLOC_CAP_SPIRAM);
     return ESP_OK;
 }
 
@@ -147,4 +164,16 @@ size_t wake_read_capture(int16_t *out, size_t samples, TickType_t wait)
 int wake_microphone_level(void)
 {
     return level;
+}
+
+int wake_take_peak(void)
+{
+    int value = peak;
+    peak = 0;
+    return value;
+}
+
+uint32_t wake_frame_count(void)
+{
+    return frames;
 }

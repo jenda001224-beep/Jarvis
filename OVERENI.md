@@ -1,6 +1,19 @@
 # Ověření
 
-Každé tvrzení, na kterém firmware stojí, a z čeho vychází. Stav k 9. 10. 2026.
+Každé tvrzení, na kterém firmware stojí, a z čeho vychází. Stav k 10. 10. 2026.
+
+## Co ukázala skutečná deska (verze 2.0, výpis přes USB)
+
+| Zjištění | Stav |
+|---|---|
+| Bootloader, 8 MB PSRAM, firmware nabíhá bez pádu | viděno |
+| Displej ST7701 a dotyk GT911 se přes ovladač výrobce spustí | viděno ve výpisu, obraz jsem neviděl |
+| ES8311 a ES7210 se otevřou na 16 kHz, model `wn9_jarvis_tts` se načte | viděno |
+| Wi-Fi se připojí, hub DIRIGERA se najde přes mDNS | viděno |
+| Volná vnitřní paměť jen 7 kB | **chyba**, ve 2.1 přesunuty zásobníky úloh a drobné alokace do PSRAM; neověřeno |
+| Mikrofon: špička 50–240 z 32767 při řeči z reproduktoru Macu, oslovení nezabralo | **nevyřešeno**; zesílení zvednuto z 30 na 37,5 dB, vzdálenost desky od Macu neznám |
+| Rozhovor s Gemini z desky | **neověřeno** |
+| Verze 2.1 (přímé kreslení do obrazové paměti, nový vzhled) | **na desce neběžela** |
 
 ## Deska
 
@@ -57,6 +70,15 @@ Displej, dotyk a zvuk firmware neovládá vlastním kódem, ale přes BSP výrob
 | ESP Web Tools umí manifest z `blob:` adresy a s `new_install_improv_wait_time: 0` přeskočí Improv | zdroják přibalené verze 10.4.0 | přečteno |
 | „Erase device“ je ve výchozím stavu nezaškrtnuté | zdroják přibalené verze | přečteno |
 | Zápis do skutečné desky | — | **neověřeno** |
+
+## Displej (verze 2.1)
+
+| Tvrzení | Zdroje | Stav |
+|---|---|---|
+| Ukazatel z `bsp_display_new` je RGB panel, ze kterého jde získat obrazová paměť | zdroják `esp_lcd_st7701_rgb.c` (přepisuje funkce téhož objektu); `esp_lvgl_port` na něm volá stejné funkce | přečteno |
+| Přímý zápis do obrazové paměti se zobrazí bez dalšího kroku | zdroják `esp_lcd_panel_rgb.c`: s bounce bufferem kopíruje obraz procesor, synchronizace cache se nedělá | přečteno |
+| Koule, prstence a okrajová záře vypadají jako v náhledu | stejný kód `fx.c` a `scene.c` vykreslený na Macu | viděno na Macu |
+| Plynulost na desce | — | **neověřeno**, firmware vypisuje snímky za sekundu a čas snímku |
 
 ## Co kompilace ani testy neodhalí
 

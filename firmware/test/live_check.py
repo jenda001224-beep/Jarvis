@@ -186,13 +186,14 @@ async def main():
     helper = build_helper()
     persona = c_string("PERSONA").replace("%s", "Praha")
     home = c_string("HOME")
-    functions = c_string("FUNCTIONS")
+    display = c_string("DISPLAY_FUNCTION")
+    functions = f"[{display},{c_string('HOME_FUNCTIONS')}]"
     plain = persona
     with_home = f"{persona}\n\n{home}\n\n{DEVICES}"
 
     results = [
-        await converse(options.endpoint, helper, key, options.model, options.voice, plain, None, False,
-                       ["What is two plus two?"], "plain"),
+        await converse(options.endpoint, helper, key, options.model, options.voice, plain, f"[{display}]", False,
+                       ["What is two plus two?", "Give me a little light, please."], "plain"),
         await converse(options.endpoint, helper, key, options.model, options.voice, with_home, functions, True,
                        ["Turn off the lamp in the living room.", "Is the lamp on right now?"], "home_search"),
     ]

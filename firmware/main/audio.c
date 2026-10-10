@@ -17,7 +17,7 @@
 #define PLAY_BUFFER_BYTES (1024 * 1024)
 #define PLAY_CHUNK_SAMPLES 512
 #define INPUT_CHUNK_SAMPLES 768
-#define MICROPHONE_GAIN_DB 30.0f
+#define MICROPHONE_GAIN_DB 37.5f
 #define DRAINED_AFTER_POLLS 4
 #define AMPLIFIER_OFF_AFTER_POLLS 40
 
@@ -137,6 +137,11 @@ esp_err_t audio_init(int volume)
     esp_codec_dev_set_out_vol(speaker, volume);
     esp_codec_dev_set_in_gain(microphone, MICROPHONE_GAIN_DB);
     bsp_audio_poweramp_enable(false);
+    int gain_left = 0;
+    int gain_right = 0;
+    esp_codec_dev_read_reg(microphone, 0x43, &gain_left);
+    esp_codec_dev_read_reg(microphone, 0x44, &gain_right);
+    ESP_LOGI(TAG, "microphone gain registers 0x%02x 0x%02x", gain_left, gain_right);
 
     uint8_t *storage = heap_caps_malloc(PLAY_BUFFER_BYTES + 1, MALLOC_CAP_SPIRAM);
     if (!storage) {

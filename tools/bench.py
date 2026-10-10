@@ -44,7 +44,7 @@ def config_partition():
 def settings_image(path, size):
     values = json.loads(Path(path).read_text(encoding="utf-8"))
     if not values.get("ssid") or not values.get("key"):
-        fail(f"{path} needs at least ssid, password and key")
+        return None
     text = json.dumps(values, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     if len(text) >= size:
         fail("settings are too long")
@@ -60,19 +60,22 @@ def flash(options):
     port = find_port(options.port)
     args = json.loads((BUILD / "flasher_args.json").read_text(encoding="utf-8"))
     files = []
-    if not options.settings_only:
+    if options.app_only:
+        files += [args["app"]["offset"], str(BUILD / args["app"]["file"])]
+    elif not options.settings_only:
         for offset, name in sorted(args["flash_files"].items(), key=lambda item: int(item[0], 16)):
             files += [offset, str(BUILD / name)]
-    if Path(options.settings).exists():
-        start, size = config_partition()
+    start, size = config_partition()
+    data = settings_image(options.settings, size) if Path(options.settings).exists() else None
+    if data and not options.app_only:
         image = ROOT / ".tools" / "tmp" / "cfg.bin"
         image.parent.mkdir(parents=True, exist_ok=True)
-        image.write_bytes(settings_image(options.settings, size))
+        image.write_bytes(data)
         files += [hex(start), str(image)]
     elif options.settings_only:
-        fail(f"{options.settings} does not exist")
+        fail(f"{options.settings} has no ssid and key")
     else:
-        print(f"bench: {options.settings} not found, flashing without settings")
+        print("bench: keeping the settings already stored in the board")
     if options.erase:
         esptool(port, "erase_flash")
     esptool(port, "--before", "default_reset", "--after", "hard_reset", "write_flash", *args["write_flash_args"], *files)
@@ -80,24 +83,48 @@ def flash(options):
         log(options)
 
 
+def open_link(port):
+    import serial
+
+    link = serial.Serial()
+    link.port = port
+    link.baudrate = BAUD
+    link.timeout = 0.2
+    link.dtr = False
+    link.rts = False
+    link.open()
+    return link
+
+
 def log(options):
     import serial
 
     port = find_port(options.port)
+    if options.reset:
+        esptool(port, "--before", "default_reset", "--after", "hard_reset", "chip_id")
     deadline = time.time() + options.seconds
-    with serial.Serial(port, BAUD, timeout=0.2) as link:
-        if options.reset:
-            link.dtr = False
-            link.rts = True
-            time.sleep(0.1)
-            link.rts = False
-        pending = b""
-        while time.time() < deadline:
+    pending = b""
+    link = None
+    while time.time() < deadline:
+        try:
+            if link is None:
+                link = open_link(find_port(options.port))
             pending += link.read(4096)
-            while b"\n" in pending:
-                line, pending = pending.split(b"\n", 1)
-                print(line.decode("utf-8", "replace").rstrip())
-                sys.stdout.flush()
+        except (serial.SerialException, OSError, SystemExit):
+            if link is not None:
+                try:
+                    link.close()
+                except Exception:
+                    pass
+                link = None
+            time.sleep(0.3)
+            continue
+        while b"\n" in pending:
+            line, pending = pending.split(b"\n", 1)
+            print(line.decode("utf-8", "replace").rstrip())
+            sys.stdout.flush()
+    if link is not None:
+        link.close()
 
 
 def main():
@@ -107,6 +134,7 @@ def main():
     flashing.add_argument("--port")
     flashing.add_argument("--settings", default=str(SETTINGS))
     flashing.add_argument("--settings-only", action="store_true")
+    flashing.add_argument("--app-only", action="store_true")
     flashing.add_argument("--erase", action="store_true")
     flashing.add_argument("--seconds", type=int, default=0)
     flashing.add_argument("--reset", action="store_true")

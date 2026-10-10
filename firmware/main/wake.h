@@ -13,3 +13,5 @@ void wake_set_capture(bool capture);
 void wake_clear_capture(void);
 size_t wake_read_capture(int16_t *out, size_t samples, TickType_t wait);
 int wake_microphone_level(void);
+int wake_take_peak(void);
+uint32_t wake_frame_count(void);

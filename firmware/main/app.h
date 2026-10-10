@@ -16,6 +16,7 @@ typedef enum {
     APP_EVENT_HEARD,
     APP_EVENT_PAIR_REQUEST,
     APP_EVENT_HUB_CHANGED,
+    APP_EVENT_HUB_PAIRED,
 } app_event_t;
 
 void app_post(app_event_t event);
