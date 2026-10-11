@@ -33,23 +33,25 @@ Deska Waveshare **ESP32-S3-Touch-LCD-4B** (4" displej, dva mikrofony, reprodukto
 
 ## Stav
 
+Verze 2.3, ověřeno na skutečné desce 11. 10. 2026.
+
 | Co | Stav |
 |---|---|
-| Firmware | verze 2.2, přeložený bez varování (ESP-IDF 5.5.5) |
-| Kalendář | čtení i opakované události porovnané s knihovnou `recurring_ical_events` na 61 kalendářích, bez rozdílu; na desce **netestováno** |
-| Tiskárna | čtení stavu a chybových kódů otestované na počítači; proti skutečné tiskárně **netestováno** |
-| Připomínky | logika otestovaná na počítači; že Jarvis opravdu promluví sám, **netestováno** (chce API klíč a desku) |
-| Zprávy pro Gemini | shodné s tím, co posílá oficiální knihovna Googlu; adresa ověřená proti skutečnému serveru |
-| Web flasher | stránka, manifest i zapisovaná data ověřené v prohlížeči |
-| Skutečná deska | verze 2.0 na desce nabíhá: displej, dotyk, zvukové čipy, model „Jarvis“, Wi-Fi i nalezení IKEA hubu. Verze 2.1 a 2.2 (nový vzhled, opravy paměti a mikrofonu, tiskárna, kalendář, připomínky) na desce **ještě neběžely** |
-| Rozhovor s Gemini naostro | **netestováno** — nemám API klíč |
-| IKEA hub | **netestováno** — z mého prostředí na něj nevidím |
+| Start, displej, dotyk, zvukové čipy, Wi-Fi, nalezení IKEA hubu | běží na desce |
+| Oslovení | na „Jarvis“ reaguje spolehlivě; na plynulé „Jarvisi“ při střední citlivosti ve 3 ze 4 pokusů a bez planého poplachu během minuty řeči. Zkoušeno syntetickým hlasem z počítače, ne živým člověkem |
+| Rozhovor s Gemini | běží na desce: dotaz hlasem i psaný přes servisní konzoli, odpověď hlasem, bezplatný tarif |
+| Plynulost řeči | po úpravě sítě 0 až 1 výpadek na odpověď (měřeno na desce se ztlumeným reproduktorem); poslechem **nepotvrzeno** |
+| Počasí, připomínky, samostatné ohlášení a jeho opakování, potvrzení dotykem | běží na desce (zkoušeno potichu přes konzoli) |
+| Animace | 29 snímků za sekundu; v klidu 4,5 ms na snímek, při řeči 21 až 23 ms. Vzhled po odlehčení jsem viděl jen v náhledu na počítači |
+| Tiskárna Bambu Lab | čtení stavu otestované na počítači; proti skutečné tiskárně **netestováno** (chybí přístupový kód) |
+| Kalendář a doba cesty | výpočty porovnané s referenční knihovnou na počítači; na desce **netestováno** (chybí odkaz na kalendář) |
+| IKEA světla | hub se najde; spárování a ovládání **netestováno** |
 
 Co přesně je čím podložené a co ověřit nešlo, je v [OVERENI.md](OVERENI.md).
 
 ## Instalace
 
-1. Vytvoř si zdarma API klíč na `aistudio.google.com/app/apikey`.
+1. Vytvoř si zdarma API klíč na `aistudio.google.com/app/apikey`. Musí být v projektu na bezplatném tarifu, nebo v placeném s kreditem; projekt s vyčerpaným předplaceným kreditem Gemini odmítne.
 2. Otevři [flasher](https://jenda001224-beep.github.io/Jarvis/) v Chrome nebo Edge na počítači.
 3. Vyplň klíč a Wi-Fi (jen 2,4 GHz). Tiskárna, kalendář a adresa domova jsou nepovinné. Údaje zůstávají v prohlížeči a zapíšou se kabelem do desky.
 4. Zapoj desku USB-C kabelem do portu UART (ten, který není uprostřed) a klikni na **Nainstalovat Jarvise**. Při první instalaci zaškrtni Erase device.
@@ -101,6 +103,7 @@ Když nastane čas, Jarvis promluví sám a zeptá se, jestli ho slyšíš. Sta�
 | „Jarvisi, jak je na tom tisk?“ | stav tiskárny Bambu Lab |
 | „Jarvisi, co dneska budu dělat?“ | dnešní události z kalendáře, u těch s místem i doba cesty |
 | „Jarvisi, připomeň mi za dvacet minut…“ | nastaví připomínku |
+| „Jarvisi, jak bude zítra?“ | předpověď počasí ze služby Open-Meteo |
 | dotyk na displej | začne poslouchat bez oslovení |
 | dotyk během rozhovoru | ukončí ho |
 | mlčení 10 s po odpovědi | ukončí ho samo |
@@ -108,7 +111,10 @@ Když nastane čas, Jarvis promluví sám a zeptá se, jestli ho slyšíš. Sta�
 ## Co je dobré vědět
 
 - **Jarvis vyká a říká „pane“.** Mluví jako Jarvis z Iron Mana, se suchým humorem. Povahu má v `firmware/main/main.c` v textu `PERSONA`.
-- **Oslovení „Jarvisi“ hlídá model natrénovaný na „Jarvis“.** Je to hotový model od Espressifu a české „Jarvisi“ to slovo obsahuje. Na desce to ale ještě nikdo nevyzkoušel; první měření ukázalo příliš tichý mikrofon, zesílení je od verze 2.1 na maximu.
+- **Oslovení „Jarvisi“ hlídá model natrénovaný na „Jarvis“.** Je to hotový model od Espressifu. Samotné „Jarvis“ pozná vždy, plynulé „Jarvisi“ jen se zvýšenou citlivostí, proto je výchozí citlivost střední. Když se ozývá sám, sniž ji ve flasheru; když neslyší, řekni „Jarvis“ a po krátké pauze pokračuj.
+- **Bezplatný tarif Gemini stačí,** jen neumí hledat na Googlu. Jarvis to pozná sám a první dotaz po zapnutí kvůli tomu trvá o vteřinu déle. Počasí proto bere odjinud (Open-Meteo), zprávy bez placeného tarifu neumí.
+- **Hlasitost 0 znamená ticho:** reproduktor i zesilovač zůstanou vypnuté, všechno ostatní běží dál.
+- **Deska chce slušnou Wi-Fi.** Přenáší zvuk oběma směry naživo; se slabým signálem (pod −70 dBm) se řeč trhá. Sílu signálu vypisuje do servisního výpisu.
 - **Když Jarvis mluví, neposlouchá.** Mikrofony by slyšely reproduktor. Skočit do řeči mu jde jen dotykem.
 - **Dokud běží rozhovor, jde zvuk z pokoje ke Googlu.** Mimo rozhovor ne. V bezplatném tarifu Google data používá ke zlepšování služeb.
 - **Bezplatný tarif má limity.** Aktuální čísla ukazuje AI Studio.
@@ -144,6 +150,18 @@ Zkouška celého rozhovoru proti skutečnému Gemini (potřebuje klíč v `nasta
 cd /Volumes/Jan/Jarvis && TMPDIR=.tools/tmp .tools/venv/bin/python firmware/test/live_check.py
 ```
 
+Servisní konzole: deska čte příkazy z USB. `ask TEXT` položí psaný dotaz, `mute on|off` ztlumí reproduktor, `dry on|off` oslovení jen zapisuje a nezačne rozhovor, `touch` nahradí dotyk, `remind VTEŘINY TEXT` nastaví zkušební připomínku. Dotaz bez mluvení a s výpisem:
+
+```bash
+cd /Volumes/Jan/Jarvis && source tools/idf-env.sh && python tools/bench.py log --seconds 40 --send "12:ask Kolik je hodin?"
+```
+
+Změna jednoho uloženého nastavení bez přepsání ostatních (hodnoty se nevypisují):
+
+```bash
+cd /Volumes/Jan/Jarvis && source tools/idf-env.sh && python tools/bench.py set volume=70
+```
+
 Nahrání do desky připojené k Macu a výpis z ní:
 
 ```bash
@@ -156,7 +174,7 @@ cd /Volumes/Jan/Jarvis && source tools/idf-env.sh && python tools/bench.py flash
 
 | Složka | Obsah |
 |---|---|
-| `firmware/main/` | firmware: `main.c` řízení a osobnost, `wake.c` oslovení, `live.c` a `proto.c` Gemini, `audio.c` zvuk, `ikea.c` světla, `printer.c` a `bambu.c` tiskárna, `calendar.c` a `agenda.c` kalendář, `travel.c` a `geo.c` doba cesty, `reminders.c` připomínky, `web.c` stahování, `ui.c` texty na displeji, `fx.c` a `scene.c` kreslení a animace koule a prstenců |
+| `firmware/main/` | firmware: `main.c` řízení a osobnost, `wake.c` oslovení, `live.c` a `proto.c` Gemini, `audio.c` zvuk, `ikea.c` světla, `printer.c` a `bambu.c` tiskárna, `calendar.c` a `agenda.c` kalendář, `travel.c` a `geo.c` doba cesty, `reminders.c` připomínky, `weather.c` a `meteo.c` počasí, `console.c` servisní konzole, `web.c` stahování, `ui.c` texty na displeji, `fx.c` a `scene.c` kreslení a animace koule a prstenců |
 | `firmware/test/` | testy, které běží na počítači |
 | `docs/` | web flasher (GitHub Pages) |
 | `tools/` | sestavení a vydání |

@@ -31,7 +31,7 @@
       si zdarma vytvoř API klíč a vlož ho sem.
     </p>
     <label for="key">API klíč</label>
-    <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="AIza…">
+    <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="AQ.… nebo AIza…">
   </section>
 
   <section class="card">
@@ -53,11 +53,17 @@
         <option value="Leda">Leda — mladistvý</option>
         <option value="Zephyr">Zephyr — jasný</option>
       </select>
+      <label for="sensitivity">Citlivost na oslovení</label>
+      <select id="sensitivity">
+        <option value="0">nízká — jen zřetelné „Jarvis“</option>
+        <option value="1" selected>střední — bere i „Jarvisi“</option>
+        <option value="2">vysoká — občas se ozve i sám</option>
+      </select>
       <label for="place">Kde bydlíš (pro počasí)</label>
       <input id="place" type="text" value="Praha" maxlength="39">
       <label for="volume">Hlasitost <span id="volume-value">70</span> %</label>
       <input id="volume" type="range" min="30" max="100" step="5" value="70">
-      <label class="check"><input id="search" type="checkbox" checked> Smí hledat na Googlu (počasí, zprávy)</label>
+      <label class="check"><input id="search" type="checkbox" checked> Smí hledat na Googlu (počasí, zprávy) — jde jen s placeným tarifem Gemini</label>
     </details>
     <p class="hint">
       Údaje neopouštějí tenhle počítač. Zapíšou se kabelem jen do desky.
@@ -151,7 +157,9 @@
       <tr><td>„Chybí nastavení“</td><td>nahraj znovu s vyplněným klíčem a Wi-Fi</td></tr>
       <tr><td>„Připojuji se k Wi-Fi“ nemizí</td><td>špatné heslo, nebo síť jen na 5 GHz</td></tr>
       <tr><td>„Gemini: API key not valid“</td><td>překlep v klíči</td></tr>
-      <tr><td>na „Jarvisi“ nereaguje</td><td>řekni to pomaleji a blíž, případně anglicky [džárvis]</td></tr>
+      <tr><td>na „Jarvisi“ nereaguje</td><td>řekni „Jarvis“ a po krátké pauze pokračuj, nebo zvyš citlivost v Dalším nastavení</td></tr>
+      <tr><td>ozývá se sám</td><td>sniž citlivost na oslovení</td></tr>
+      <tr><td>„Gemini: Your prepayment credits are depleted“</td><td>projekt klíče má vyčerpaný kredit; dobij ho v AI Studiu nebo vytvoř klíč v jiném projektu</td></tr>
       <tr><td>o tiskárně říká, že ji nenašel</td><td>tiskárna musí být zapnutá a na stejné Wi-Fi; jinak vyplň její IP a sériové číslo</td></tr>
       <tr><td>tiskárna odmítá přístupový kód</td><td>opiš ho znovu z displeje tiskárny; po obnovení sítě se mění</td></tr>
       <tr><td>kalendář se nenačetl</td><td>odkaz musí začínat webcal:// nebo https:// a kalendář musí být veřejný</td></tr>

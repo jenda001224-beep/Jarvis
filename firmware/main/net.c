@@ -63,6 +63,12 @@ bool net_connected(void)
     return connected;
 }
 
+int net_signal(void)
+{
+    int rssi = 0;
+    return connected && esp_wifi_sta_get_rssi(&rssi) == ESP_OK ? rssi : 0;
+}
+
 bool net_time_valid(void)
 {
     return time(NULL) > 1700000000;

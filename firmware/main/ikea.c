@@ -16,6 +16,7 @@
 #include "freertos/task.h"
 #include "mbedtls/sha256.h"
 #include "mdns.h"
+#include "memory.h"
 #include "net.h"
 #include "proto.h"
 
@@ -47,8 +48,8 @@ static const char *TAG = "ikea";
 
 static char hub_address[48];
 static char token[1536];
-static device_t devices[MAX_DEVICES];
-static device_t fresh[MAX_DEVICES];
+static EXTERNAL_RAM device_t devices[MAX_DEVICES];
+static EXTERNAL_RAM device_t fresh[MAX_DEVICES];
 static int device_count;
 static volatile ikea_state_t state = IKEA_SEARCHING;
 static volatile bool pairing_requested;
@@ -127,7 +128,7 @@ static int perform(esp_http_client_method_t method, const char *path, const char
     esp_http_client_delete_header(http, "Authorization");
     esp_http_client_delete_header(http, "Content-Type");
     if (authorised) {
-        static char bearer[sizeof(token) + 8];
+        static EXTERNAL_RAM char bearer[sizeof(token) + 8];
         snprintf(bearer, sizeof(bearer), "Bearer %s", token);
         esp_http_client_set_header(http, "Authorization", bearer);
     }

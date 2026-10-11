@@ -5,6 +5,7 @@ const fields = {
   voice: document.getElementById("voice"),
   place: document.getElementById("place"),
   volume: document.getElementById("volume"),
+  sensitivity: document.getElementById("sensitivity"),
   search: document.getElementById("search"),
   printerCode: document.getElementById("printer-code"),
   printerIp: document.getElementById("printer-ip"),
@@ -34,6 +35,7 @@ function settings() {
     voice: fields.voice.value,
     place: fields.place.value.trim() || "Praha",
     volume: Number(fields.volume.value),
+    sensitivity: Number(fields.sensitivity.value),
     search: fields.search.checked,
   };
   const optional = {

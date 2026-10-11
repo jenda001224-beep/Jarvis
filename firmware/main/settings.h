@@ -19,6 +19,7 @@ typedef struct {
     char printer_serial[24];
     char calendars[SETTINGS_CALENDARS][256];
     int volume;
+    int sensitivity;
     bool search;
 } settings_t;
 

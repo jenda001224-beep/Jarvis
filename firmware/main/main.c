@@ -9,6 +9,7 @@
 #include "bsp/esp-bsp.h"
 #include "cJSON.h"
 #include "calendar.h"
+#include "console.h"
 #include "display.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -19,6 +20,7 @@
 #include "freertos/task.h"
 #include "ikea.h"
 #include "live.h"
+#include "memory.h"
 #include "freertos/semphr.h"
 #include "net.h"
 #include "printer.h"
@@ -27,6 +29,7 @@
 #include "travel.h"
 #include "ui.h"
 #include "wake.h"
+#include "weather.h"
 
 #define CONNECT_TIMEOUT_MS 12000
 #define FIRST_TURN_TIMEOUT_MS 12000
@@ -34,6 +37,7 @@
 #define ANSWER_TIMEOUT_MS 15000
 #define STATUS_INTERVAL_MS 2000
 #define RESERVE_MINUTES 15
+#define CONTROL_PRIORITY 6
 #define STALLED_REPLY_TIMEOUT_MS 5000
 #define SESSION_LIMIT_MS (9 * 60 * 1000)
 #define ERROR_SHOWN_MS 5000
@@ -56,6 +60,7 @@ typedef enum {
     SESSION_VOICE,
     SESSION_TOUCH,
     SESSION_ANNOUNCE,
+    SESSION_TEXT,
 } session_kind_t;
 
 typedef struct {
@@ -79,8 +84,8 @@ static const char PERSONA[] =
     "povídat“, odpovíš ve stylu „To je trochu random, pane, ale dobře. O čem si chcete povídat?“ "
     "Odpovědi zazní nahlas, proto mluv jednou až dvěma krátkými větami; po splněném příkazu stačí pár slov, třeba "
     "„Hotovo, pane.“ Pán tě oslovuje Jarvisi; oslovení může na začátku nahrávky chybět nebo být uříznuté, neřeš to. "
-    "Anglická jména interpretů, skladeb, filmů a aplikací vyslovuj anglicky. Aktuální věci jako počasí nebo zprávy "
-    "si vyhledej. Když se pán neptá na konkrétní místo, myslí %s. Když něco nevíš nebo se něco nepovedlo, řekni to "
+    "Anglická jména interpretů, skladeb, filmů a aplikací vyslovuj anglicky. Počasí a předpověď zjišťuj nástrojem "
+    "get_weather. Když se pán neptá na konkrétní místo, myslí %s. Když něco nevíš nebo se něco nepovedlo, řekni to "
     "krátce a na rovinu. Nikdy netvrď, že jsi něco udělal nebo zjistil, dokud ti to nástroj nepotvrdí. Hudbu zatím "
     "pouštět neumíš; když o ni pán požádá, řekni to jednou větou. "
     "Tvůj displej umí posvítit: když pán řekne, ať mu dáš trochu světla, posvítíš nebo rozsvítíš displej, zavolej "
@@ -89,6 +94,11 @@ static const char PERSONA[] =
     "Když pán chce něco připomenout nebo dát vědět v určitý čas, zavolej set_reminder a do text napiš celou větou, "
     "co mu máš říct. Když ti systém oznámí, že nastal čas připomínky, promluv na pána sám: oslov ho, řekni mu to "
     "a zeptej se, jestli tě slyší.";
+
+static const char SEARCHING[] = "Zprávy a jiné čerstvé informace si vyhledej na internetu.";
+
+static const char NOT_SEARCHING[] =
+    "Na internetu teď hledat neumíš. Když se pán ptá na zprávy nebo jiné čerstvé informace, řekni to jednou větou.";
 
 static const char HOME[] =
     "Ovládáš světla, LED pásky a zásuvky IKEA. Použij nástroj set_devices s id ze seznamu níže; stav zjistíš "
@@ -133,6 +143,12 @@ static const char REMINDER_FUNCTIONS[] =
     "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{}}},"
     "{\"name\":\"cancel_reminder\",\"description\":\"Zruší připomínku podle id z list_reminders.\","
     "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{\"id\":{\"type\":\"INTEGER\"}},\"required\":[\"id\"]}}";
+
+static const char WEATHER_FUNCTION[] =
+    "{\"name\":\"get_weather\",\"description\":\"Vrátí aktuální počasí a předpověď po dnech.\","
+    "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{"
+    "\"place\":{\"type\":\"STRING\",\"description\":\"Město nebo obec; bez něj domovské místo pána\"},"
+    "\"days\":{\"type\":\"INTEGER\",\"description\":\"Počet dní včetně dneška, 1 až 7, výchozí 2\"}}}}";
 
 static const char PRINTER_FUNCTION[] =
     "{\"name\":\"printer_status\",\"description\":\"Vrátí stav 3D tiskárny: co dělá, kolik procent a minut zbývá "
@@ -185,11 +201,13 @@ static int64_t last_model_audio;
 static int64_t last_voice;
 static bool heard_any;
 static bool thinking;
+static session_kind_t session_kind;
 static uint32_t announcing;
 static bool announced;
 static bool awaiting_answer;
 static bool delivering_unheard;
-static char announcement[sizeof(ANNOUNCEMENT) + REMINDER_TEXT];
+static bool dry;
+static char opening[sizeof(ANNOUNCEMENT) + CONSOLE_LINE];
 
 static int64_t now_ms(void)
 {
@@ -266,11 +284,13 @@ static void on_heard(const char *text)
                    (value >= 'a' && value <= 'z') || value >= 0xC0;
     }
     heard_letters += letters;
+    ESP_LOGI(TAG, "heard: %s", text);
     ui_append_heard(text);
 }
 
 static void on_spoken(const char *text)
 {
+    ESP_LOGI(TAG, "said: %s", text);
     ui_append_spoken(text);
 }
 
@@ -403,6 +423,8 @@ static char *run_tool(const tool_call_t *call)
         result = ikea_tool_set(call->args);
     } else if (strcmp(call->name, "get_devices") == 0) {
         result = ikea_tool_get();
+    } else if (strcmp(call->name, "get_weather") == 0) {
+        result = weather_tool(call->args);
     } else if (strcmp(call->name, "printer_status") == 0) {
         result = printer_tool_status();
     } else if (strcmp(call->name, "get_calendar") == 0) {
@@ -430,6 +452,7 @@ static void tool_task(void *arg)
         ESP_LOGI(TAG, "tool %s %s", call.name, call.args);
         tool_busy = true;
         char *result = run_tool(&call);
+        ESP_LOGI(TAG, "tool answer %.240s", result ? result : "none");
         live_send_tool_response(call.id, call.name, result ? result : "{\"error\":\"neznámý nástroj\"}");
         tool_busy = false;
         cJSON_free(result);
@@ -439,7 +462,7 @@ static void tool_task(void *arg)
 
 static void uplink_task(void *arg)
 {
-    static int16_t pcm[UPLINK_SAMPLES];
+    static EXTERNAL_RAM int16_t pcm[UPLINK_SAMPLES];
     for (;;) {
         if (!uplink_enabled || !live_ready()) {
             vTaskDelay(pdMS_TO_TICKS(20));
@@ -457,6 +480,7 @@ static char *build_instruction(bool with_home, const reminder_t *unheard, int un
     static const char *const DAYS[] = {"neděle", "pondělí", "úterý", "středa", "čtvrtek", "pátek", "sobota"};
     text_t text = {0};
     append(&text, PERSONA, settings_get()->place);
+    append(&text, " %s", search_allowed && settings_get()->search ? SEARCHING : NOT_SEARCHING);
     if (net_time_valid()) {
         time_t now = time(NULL);
         struct tm local;
@@ -498,7 +522,7 @@ static char *build_instruction(bool with_home, const reminder_t *unheard, int un
 static char *build_functions(bool with_home)
 {
     text_t text = {0};
-    append(&text, "[%s,%s", DISPLAY_FUNCTION, REMINDER_FUNCTIONS);
+    append(&text, "[%s,%s,%s", DISPLAY_FUNCTION, REMINDER_FUNCTIONS, WEATHER_FUNCTION);
     if (printer_configured()) {
         append(&text, ",%s", PRINTER_FUNCTION);
     }
@@ -606,19 +630,11 @@ static void fail(const char *message)
     ui_set_mode(UI_ERROR, message);
 }
 
-static void start_session(session_kind_t kind)
+static esp_err_t open_connection(void)
 {
-    wake_set_armed(false);
-    if (kind == SESSION_TOUCH) {
-        wake_clear_capture();
-        wake_set_capture(true);
-    } else if (kind == SESSION_ANNOUNCE) {
-        wake_set_capture(false);
-        wake_clear_capture();
-    }
     reminder_t unheard[REMINDERS_MAX];
     int unheard_count = 0;
-    if (kind != SESSION_ANNOUNCE) {
+    if (session_kind != SESSION_ANNOUNCE) {
         xSemaphoreTake(reminder_lock, portMAX_DELAY);
         unheard_count = reminders_unheard(unheard, REMINDERS_MAX);
         xSemaphoreGive(reminder_lock);
@@ -631,11 +647,26 @@ static void start_session(session_kind_t kind)
                         : ESP_ERR_NO_MEM;
     free(instruction);
     free(functions);
-    if (err != ESP_OK) {
+    delivering_unheard = err == ESP_OK && unheard_count > 0;
+    return err;
+}
+
+static void start_session(session_kind_t kind)
+{
+    wake_set_armed(false);
+    bool spoken_first = kind == SESSION_ANNOUNCE || kind == SESSION_TEXT;
+    if (kind == SESSION_TOUCH) {
+        wake_clear_capture();
+        wake_set_capture(true);
+    } else if (spoken_first) {
+        wake_set_capture(false);
+        wake_clear_capture();
+    }
+    session_kind = kind;
+    if (open_connection() != ESP_OK) {
         fail("Nepodařilo se otevřít spojení");
         return;
     }
-    delivering_unheard = unheard_count > 0;
     announced = false;
     awaiting_answer = false;
     turn_complete = false;
@@ -645,13 +676,13 @@ static void start_session(session_kind_t kind)
     thinking = false;
     uplinked = false;
     heard_letters = 0;
-    uplink_enabled = kind != SESSION_ANNOUNCE;
+    uplink_enabled = !spoken_first;
     session_since = now_ms();
     last_voice = session_since;
     last_activity = session_since;
     ui_clear_transcript();
     enter(STATE_CONNECTING);
-    ui_set_mode(kind == SESSION_ANNOUNCE ? UI_THINKING : UI_LISTENING, NULL);
+    ui_set_mode(spoken_first ? UI_THINKING : UI_LISTENING, NULL);
 }
 
 static void announce_due(void)
@@ -671,7 +702,7 @@ static void announce_due(void)
         return;
     }
     ESP_LOGI(TAG, "reminder %u is due", (unsigned) due.id);
-    snprintf(announcement, sizeof(announcement), ANNOUNCEMENT, due.text);
+    snprintf(opening, sizeof(opening), ANNOUNCEMENT, due.text);
     announcing = due.id;
     start_session(SESSION_ANNOUNCE);
 }
@@ -710,11 +741,51 @@ static void on_session_closed(void)
         snprintf(message, sizeof(message), "Gemini: %s", reason);
         if (settings_get()->search && search_allowed) {
             search_allowed = false;
+            ESP_LOGW(TAG, "trying again without search");
+            if (open_connection() == ESP_OK) {
+                enter(STATE_CONNECTING);
+                return;
+            }
         }
     } else {
         snprintf(message, sizeof(message), "Gemini se neozval. Zkontroluj Wi-Fi a klíč.");
     }
     fail(message);
+}
+
+static void on_console(void)
+{
+    char line[CONSOLE_LINE];
+    if (!console_take(line, sizeof(line))) {
+        return;
+    }
+    char *argument = strchr(line, ' ');
+    if (argument) {
+        *argument++ = 0;
+    } else {
+        argument = line + strlen(line);
+    }
+    bool on = strcmp(argument, "on") == 0;
+    if (strcmp(line, "ask") == 0 && argument[0] && state == STATE_IDLE) {
+        strlcpy(opening, argument, sizeof(opening));
+        start_session(SESSION_TEXT);
+    } else if (strcmp(line, "mute") == 0) {
+        audio_set_muted(on);
+    } else if (strcmp(line, "dry") == 0) {
+        dry = on;
+    } else if (strcmp(line, "touch") == 0) {
+        app_post(APP_EVENT_TOUCH);
+    } else if (strcmp(line, "remind") == 0 && net_time_valid()) {
+        char *text = NULL;
+        long seconds = strtol(argument, &text, 10);
+        if (seconds > 0 && text && *text == ' ') {
+            xSemaphoreTake(reminder_lock, portMAX_DELAY);
+            reminders_add(time(NULL) + seconds, text + 1);
+            xSemaphoreGive(reminder_lock);
+            save_reminders();
+        }
+    }
+    ESP_LOGI(TAG, "console: %s, state %d, muted %d, dry %d", line, (int) state, (int) audio_muted(), (int) dry);
 }
 
 static void handle(app_event_t event)
@@ -729,7 +800,12 @@ static void handle(app_event_t event)
         }
         break;
     case APP_EVENT_WAKE:
-        if (state == STATE_IDLE) {
+        if (dry) {
+            ESP_LOGI(TAG, "wake word ignored");
+            wake_set_capture(false);
+            wake_clear_capture();
+            wake_set_armed(true);
+        } else if (state == STATE_IDLE) {
             start_session(SESSION_VOICE);
         } else if (!in_session) {
             wake_set_capture(false);
@@ -751,8 +827,8 @@ static void handle(app_event_t event)
         if (state == STATE_CONNECTING) {
             last_activity = now_ms();
             enter(STATE_LISTENING);
-            if (announcing) {
-                live_send_text(announcement);
+            if (session_kind == SESSION_ANNOUNCE || session_kind == SESSION_TEXT) {
+                live_send_text(opening);
             }
         }
         break;
@@ -814,6 +890,9 @@ static void handle(app_event_t event)
     case APP_EVENT_REMINDERS_CHANGED:
         save_reminders();
         break;
+    case APP_EVENT_CONSOLE:
+        on_console();
+        break;
     }
 }
 
@@ -828,8 +907,11 @@ static void report(int64_t now)
     int frames_per_second = 0;
     int frame_microseconds = 0;
     ui_render_stats(&frames_per_second, &frame_microseconds);
-    ESP_LOGI(TAG, "state %d, mic peak %d in %u frames, display %d fps at %d us, heap %u internal (lowest %u), %u external",
-             (int) state, wake_take_peak(), (unsigned) (frames - last_frames), frames_per_second, frame_microseconds,
+    ESP_LOGI(TAG,
+             "state %d, wifi %d dBm, mic peak %d in %u frames, display %d fps at %d us, heap %u internal (lowest %u), "
+             "%u external",
+             (int) state, net_signal(), wake_take_peak(), (unsigned) (frames - last_frames), frames_per_second,
+             frame_microseconds,
              (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
              (unsigned) heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
              (unsigned) heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
@@ -888,6 +970,10 @@ static void supervise(void)
         if (audio_playing()) {
             last_model_audio = now;
         } else if (turn_complete || now - last_model_audio > STALLED_REPLY_TIMEOUT_MS) {
+            audio_stats_t stats;
+            audio_take_stats(&stats);
+            ESP_LOGI(TAG, "reply played: %u ms of speech, longest pause in arrival %u ms, %u dropouts",
+                     (unsigned) stats.played_ms, (unsigned) stats.longest_gap_ms, (unsigned) stats.underruns);
             resume_listening();
         }
         break;
@@ -958,7 +1044,9 @@ void app_main(void)
     ikea_start(hub_token);
     printer_start();
     calendar_start();
+    console_start();
 
+    vTaskPrioritySet(NULL, CONTROL_PRIORITY);
     for (;;) {
         app_event_t event;
         if (xQueueReceive(events, &event, pdMS_TO_TICKS(100)) == pdTRUE) {

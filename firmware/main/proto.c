@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "cJSON.h"
+#include "memory.h"
 
 #define AUDIO_PREFIX "{\"realtimeInput\":{\"audio\":{\"data\":\""
 #define AUDIO_SUFFIX "\",\"mimeType\":\"audio/pcm;rate=16000\"}}}"
@@ -219,7 +220,7 @@ static long find_token(const char *buffer, size_t length, size_t from, const cha
 
 static size_t extract_audio(char *message, size_t length, const proto_handlers_t *handlers, void *ctx)
 {
-    static int16_t decoded[DECODE_CHARS / 4 * 3 / 2];
+    static EXTERNAL_RAM int16_t decoded[DECODE_CHARS / 4 * 3 / 2];
     size_t position = 0;
     for (;;) {
         long anchor = find_token(message, length, position, "\"inlineData\"");

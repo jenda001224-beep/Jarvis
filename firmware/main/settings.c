@@ -22,6 +22,7 @@ static settings_t settings = {
     .place = "Praha",
     .transport = "scooter",
     .volume = 70,
+    .sensitivity = 1,
     .search = true,
 };
 
@@ -83,8 +84,12 @@ bool settings_load(void)
         }
     }
     const cJSON *volume = cJSON_GetObjectItemCaseSensitive(root, "volume");
-    if (cJSON_IsNumber(volume) && volume->valueint >= 10 && volume->valueint <= 100) {
+    if (cJSON_IsNumber(volume) && volume->valueint >= 0 && volume->valueint <= 100) {
         settings.volume = volume->valueint;
+    }
+    const cJSON *sensitivity = cJSON_GetObjectItemCaseSensitive(root, "sensitivity");
+    if (cJSON_IsNumber(sensitivity) && sensitivity->valueint >= 0 && sensitivity->valueint <= 2) {
+        settings.sensitivity = sensitivity->valueint;
     }
     const cJSON *search = cJSON_GetObjectItemCaseSensitive(root, "search");
     if (cJSON_IsBool(search)) {

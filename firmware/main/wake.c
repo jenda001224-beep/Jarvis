@@ -12,11 +12,13 @@
 #include "freertos/stream_buffer.h"
 #include "freertos/task.h"
 #include "model_path.h"
+#include "settings.h"
 
 #define CAPTURE_SECONDS 4
 #define CAPTURE_BYTES (AUDIO_SAMPLE_RATE * sizeof(int16_t) * CAPTURE_SECONDS)
 
 static const char *TAG = "wake";
+static const float THRESHOLDS[] = {0.63f, 0.48f, 0.44f};
 
 static const esp_afe_sr_iface_t *afe;
 static esp_afe_sr_data_t *afe_data;
@@ -106,6 +108,7 @@ esp_err_t wake_start(void)
     if (!afe_data) {
         return ESP_FAIL;
     }
+    afe->set_wakenet_threshold(afe_data, 1, THRESHOLDS[settings_get()->sensitivity]);
 
     uint8_t *storage = heap_caps_malloc(CAPTURE_BYTES + 1, MALLOC_CAP_SPIRAM);
     if (!storage) {
@@ -113,7 +116,7 @@ esp_err_t wake_start(void)
     }
     capture_buffer = xStreamBufferCreateStatic(CAPTURE_BYTES, 2, storage, &capture_buffer_state);
     armed = true;
-    xTaskCreatePinnedToCoreWithCaps(feed_task, "afe_feed", 8192, NULL, 5, NULL, 0, MALLOC_CAP_SPIRAM);
+    xTaskCreatePinnedToCoreWithCaps(feed_task, "afe_feed", 8192, NULL, 7, NULL, 0, MALLOC_CAP_SPIRAM);
     xTaskCreatePinnedToCoreWithCaps(fetch_task, "afe_fetch", 8192, NULL, 5, NULL, 1, MALLOC_CAP_SPIRAM);
     return ESP_OK;
 }

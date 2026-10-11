@@ -51,9 +51,48 @@ def settings_image(path, size):
     return text + b"\0" + b"\xff" * (size - len(text) - 1)
 
 
-def esptool(port, *arguments):
+def esptool(port, *arguments, quiet=False):
     command = [sys.executable, "-m", "esptool", "--chip", "esp32s3", "-p", port, "-b", "460800", *arguments]
-    subprocess.run(command, check=True)
+    subprocess.run(command, check=True, capture_output=quiet)
+
+
+def stored_settings(image):
+    end = next((index for index, byte in enumerate(image) if byte in (0x00, 0xFF)), len(image))
+    return json.loads(image[:end].decode("utf-8")) if end else {}
+
+
+def change(options):
+    port = find_port(options.port)
+    start, size = config_partition()
+    folder = ROOT / ".tools" / "tmp"
+    folder.mkdir(parents=True, exist_ok=True)
+    before = folder / "cfg-before.bin"
+    after = folder / "cfg-after.bin"
+    try:
+        esptool(port, "--after", "no_reset", "read_flash", hex(start), str(size), str(before), quiet=True)
+        values = stored_settings(before.read_bytes())
+        for pair in options.pairs:
+            name, _, text = pair.partition("=")
+            if not name or not _:
+                fail(f"expected name=value, got {pair}")
+            try:
+                values[name] = json.loads(text)
+            except ValueError:
+                values[name] = text
+        for name in options.clipboard or []:
+            values[name] = subprocess.run(["pbpaste"], capture_output=True, text=True, check=True).stdout.strip()
+        for name in options.remove or []:
+            values.pop(name, None)
+        text = json.dumps(values, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        if len(text) >= size:
+            fail("settings are too long")
+        after.write_bytes(text + b"\0" + b"\xff" * (size - len(text) - 1))
+        esptool(port, "--after", "no_reset" if options.stay else "hard_reset", "write_flash", hex(start), str(after),
+                quiet=True)
+        print("bench: the board now stores", ", ".join(sorted(values)))
+    finally:
+        before.unlink(missing_ok=True)
+        after.unlink(missing_ok=True)
 
 
 def flash(options):
@@ -102,13 +141,22 @@ def log(options):
     port = find_port(options.port)
     if options.reset:
         esptool(port, "--before", "default_reset", "--after", "hard_reset", "chip_id")
-    deadline = time.time() + options.seconds
+    started = time.time()
+    deadline = started + options.seconds
+    planned = []
+    for item in options.send or []:
+        moment, _, text = item.partition(":")
+        planned.append((float(moment), text))
+    planned.sort()
     pending = b""
     link = None
     while time.time() < deadline:
         try:
             if link is None:
                 link = open_link(find_port(options.port))
+            while planned and time.time() - started >= planned[0][0]:
+                link.write(planned.pop(0)[1].encode("utf-8") + b"\n")
+                link.flush()
             pending += link.read(4096)
         except (serial.SerialException, OSError, SystemExit):
             if link is not None:
@@ -138,11 +186,20 @@ def main():
     flashing.add_argument("--erase", action="store_true")
     flashing.add_argument("--seconds", type=int, default=0)
     flashing.add_argument("--reset", action="store_true")
+    flashing.add_argument("--send", action="append")
     flashing.set_defaults(run=flash)
+    changing = commands.add_parser("set")
+    changing.add_argument("pairs", nargs="*")
+    changing.add_argument("--port")
+    changing.add_argument("--clipboard", action="append")
+    changing.add_argument("--remove", action="append")
+    changing.add_argument("--stay", action="store_true")
+    changing.set_defaults(run=change)
     logging = commands.add_parser("log")
     logging.add_argument("--port")
     logging.add_argument("--seconds", type=int, default=30)
     logging.add_argument("--reset", action="store_true")
+    logging.add_argument("--send", action="append")
     logging.set_defaults(run=log)
     options = parser.parse_args()
     options.run(options)

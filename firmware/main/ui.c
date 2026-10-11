@@ -32,6 +32,8 @@
 #define BRIGHTNESS_IDLE 45
 #define DIM_AFTER_MS 60000
 #define FRAME_MS 33
+#define REST_MS 5
+#define RENDER_CORE 1
 #define VOICE_TEXT_DELAY_MS 420
 #define TICK_MS 50
 
@@ -212,7 +214,6 @@ static void render_task(void *arg)
     int64_t window = last;
     int frames = 0;
     int64_t spent = 0;
-    TickType_t wake = xTaskGetTickCount();
     for (;;) {
         int64_t now = esp_timer_get_time();
         float seconds = (now - last) / 1000000.0f;
@@ -227,7 +228,8 @@ static void render_task(void *arg)
         if (!lamp) {
             fx_render(&frame, pixels);
         }
-        spent += esp_timer_get_time() - now;
+        int64_t took = esp_timer_get_time() - now;
+        spent += took;
         frames++;
         if (now - window >= 3000000) {
             stat_frames = (int) (frames * 1000000LL / (now - window));
@@ -236,7 +238,8 @@ static void render_task(void *arg)
             frames = 0;
             spent = 0;
         }
-        vTaskDelayUntil(&wake, pdMS_TO_TICKS(FRAME_MS));
+        int rest = FRAME_MS - (int) (took / 1000);
+        vTaskDelay(pdMS_TO_TICKS(rest < REST_MS ? REST_MS : rest));
     }
 }
 
@@ -333,7 +336,7 @@ void ui_init(uint16_t *framebuffer)
     bsp_display_unlock();
     set_brightness(BRIGHTNESS_ACTIVE);
     if (pixels && fx_init(allocate_external)) {
-        xTaskCreatePinnedToCoreWithCaps(render_task, "render", 6144, NULL, 3, NULL, 0, MALLOC_CAP_SPIRAM);
+        xTaskCreatePinnedToCoreWithCaps(render_task, "render", 6144, NULL, 3, NULL, RENDER_CORE, MALLOC_CAP_SPIRAM);
     }
 }
 

@@ -16,6 +16,7 @@
 #include "freertos/task.h"
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
+#include "memory.h"
 #include "mqtt_client.h"
 #include "net.h"
 #include "settings.h"
@@ -49,7 +50,7 @@ static char client_name[24];
 static esp_mqtt_client_handle_t client;
 static SemaphoreHandle_t lock;
 static bambu_status_t status;
-static lookup_t lookups[TEXT_SLOTS];
+static EXTERNAL_RAM lookup_t lookups[TEXT_SLOTS];
 static int next_slot;
 static char *incoming;
 static size_t incoming_capacity;

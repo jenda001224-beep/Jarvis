@@ -6,6 +6,7 @@
 #include "bambu.h"
 #include "cJSON.h"
 #include "geo.h"
+#include "meteo.h"
 #include "proto.h"
 #include "reminders.h"
 
@@ -193,6 +194,43 @@ static void test_travel(void)
     assert(!geo_parse_route(none, strlen(none), &seconds, &meters));
 }
 
+static void test_weather(void)
+{
+    double latitude = 0;
+    double longitude = 0;
+    char name[32];
+    const char *place = "{\"results\":[{\"id\":3067696,\"name\":\"Praha\",\"latitude\":50.08804,"
+                        "\"longitude\":14.42076,\"country\":\"Česko\"}],\"generationtime_ms\":0.15}";
+    assert(meteo_parse_place(place, strlen(place), &latitude, &longitude, name, sizeof(name)));
+    assert(strcmp(name, "Praha") == 0 && latitude > 50.08 && longitude < 14.43);
+    assert(!meteo_parse_place("{\"generationtime_ms\":0.1}", 25, &latitude, &longitude, name, sizeof(name)));
+
+    const char *forecast =
+        "{\"latitude\":50.08,\"current\":{\"time\":\"2026-10-11T08:30\",\"temperature_2m\":9.6,"
+        "\"apparent_temperature\":6.7,\"weather_code\":2,\"wind_speed_10m\":13.0},"
+        "\"daily\":{\"time\":[\"2026-10-11\",\"2026-10-12\",\"2026-10-13\"],\"weather_code\":[61,80,45],"
+        "\"temperature_2m_max\":[14.3,14.3,15.2],\"temperature_2m_min\":[8.8,6.6,2.4],"
+        "\"precipitation_probability_max\":[28,21,2],\"wind_speed_10m_max\":[15.9,12.3,4.1]}}";
+    char *described = meteo_describe(forecast, strlen(forecast), "Praha");
+    cJSON *root = cJSON_Parse(described);
+    assert(root);
+    const cJSON *now = cJSON_GetObjectItem(root, "now");
+    assert(strcmp(cJSON_GetObjectItem(now, "sky")->valuestring, "polojasno") == 0);
+    assert(cJSON_GetObjectItem(now, "celsius")->valueint == 10 && cJSON_GetObjectItem(now, "feels_like")->valueint == 7);
+    const cJSON *days = cJSON_GetObjectItem(root, "days");
+    assert(cJSON_GetArraySize(days) == 3);
+    const cJSON *third = cJSON_GetArrayItem(days, 2);
+    assert(strcmp(cJSON_GetObjectItem(third, "weekday")->valuestring, "úterý") == 0);
+    assert(strcmp(cJSON_GetObjectItem(third, "sky")->valuestring, "mlha") == 0);
+    assert(cJSON_GetObjectItem(third, "min_celsius")->valueint == 2);
+    assert(strcmp(cJSON_GetObjectItem(cJSON_GetArrayItem(days, 0), "weekday")->valuestring, "dnes") == 0);
+    printf("weather tool answer: %s\n", described);
+    cJSON_Delete(root);
+    free(described);
+    assert(meteo_describe("{\"error\":true}", 14, "Praha") == NULL);
+    assert(strcmp(meteo_sky(95), "bouřka") == 0 && strcmp(meteo_sky(12345), "neznámé počasí") == 0);
+}
+
 static void test_text_message(void)
 {
     char *message = proto_build_text("Zpráva od systému: „test“");
@@ -212,7 +250,8 @@ int main(void)
     test_printer();
     test_reminders();
     test_travel();
+    test_weather();
     test_text_message();
-    puts("modules: printer, reminders, travel and text prompt pass");
+    puts("modules: printer, reminders, travel, weather and text prompt pass");
     return 0;
 }

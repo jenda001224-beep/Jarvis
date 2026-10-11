@@ -12,6 +12,7 @@
 #include "esp_websocket_client.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "memory.h"
 #include "proto.h"
 #include "settings.h"
 
@@ -39,6 +40,7 @@ static size_t receive_capacity;
 static volatile bool ready;
 static volatile bool was_ready;
 static volatile bool speaking;
+static volatile bool ended;
 static char close_reason[128];
 
 static void on_setup_complete(void *ctx)
@@ -81,6 +83,7 @@ static void on_interrupted(void *ctx)
 
 static void on_turn_complete(void *ctx)
 {
+    audio_finish();
     speaking = false;
     app_post(APP_EVENT_TURN_COMPLETE);
 }
@@ -178,9 +181,11 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *event)
     case WEBSOCKET_EVENT_DISCONNECTED:
     case WEBSOCKET_EVENT_CLOSED:
     case WEBSOCKET_EVENT_ERROR:
-        if (ready || id != WEBSOCKET_EVENT_ERROR) {
-            ESP_LOGW(TAG, "connection ended (%d)", (int) id);
+        if (source != client || ended) {
+            break;
         }
+        ended = true;
+        ESP_LOGW(TAG, "connection ended (%d)", (int) id);
         ready = false;
         app_post(APP_EVENT_SESSION_CLOSED);
         break;
@@ -229,6 +234,7 @@ esp_err_t live_open(const char *instruction, const char *functions_json, bool go
     ready = false;
     was_ready = false;
     speaking = false;
+    ended = false;
     client = esp_websocket_client_init(&config);
     if (!client) {
         return ESP_FAIL;
@@ -284,7 +290,7 @@ static bool send_text(const char *text, size_t length)
 
 bool live_send_audio(const int16_t *pcm, size_t samples)
 {
-    static char message[(UPLINK_SAMPLES * 2 + 2) / 3 * 4 + 128];
+    static EXTERNAL_RAM char message[(UPLINK_SAMPLES * 2 + 2) / 3 * 4 + 128];
     if (samples > UPLINK_SAMPLES) {
         samples = UPLINK_SAMPLES;
     }

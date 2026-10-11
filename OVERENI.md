@@ -2,19 +2,22 @@
 
 Každé tvrzení, na kterém firmware stojí, a z čeho vychází. Stav k 10. 10. 2026.
 
-## Co ukázala skutečná deska (verze 2.0, výpis přes USB)
+## Co ukázala skutečná deska (verze 2.3, výpis přes USB, 11. 10. 2026)
 
 | Zjištění | Stav |
 |---|---|
-| Bootloader, 8 MB PSRAM, firmware nabíhá bez pádu | viděno |
-| Displej ST7701 a dotyk GT911 se přes ovladač výrobce spustí | viděno ve výpisu, obraz jsem neviděl |
-| ES8311 a ES7210 se otevřou na 16 kHz, model `wn9_jarvis_tts` se načte | viděno |
-| Wi-Fi se připojí, hub DIRIGERA se najde přes mDNS | viděno |
-| Volná vnitřní paměť jen 7 kB | **chyba**, ve 2.1 přesunuty zásobníky úloh a drobné alokace do PSRAM; neověřeno |
-| Mikrofon: špička 50–240 z 32767 při řeči z reproduktoru Macu, oslovení nezabralo | **nevyřešeno**; zesílení zvednuto z 30 na 37,5 dB, vzdálenost desky od Macu neznám |
-| Rozhovor s Gemini z desky | **neověřeno** |
-| Verze 2.1 (přímé kreslení do obrazové paměti, nový vzhled) | **na desce neběžela** |
-| Verze 2.2 (osobnost, tiskárna, kalendář, připomínky) | **na desce neběžela** |
+| Start bez pádu, 8 MB PSRAM, displej ST7701, dotyk GT911, ES8311 a ES7210 na 16 kHz, model `wn9_jarvis_tts` | viděno ve výpisu; jednou při startu selhala komunikace s expandérem TCA9554 a deska se sama restartovala |
+| Volná vnitřní paměť | v klidu 85 kB, při rozhovoru 73 kB (před přesunem velkých polí do PSRAM klesala na 10 kB) |
+| Mikrofon | klid v tiché místnosti do 250, řeč z reproduktoru počítače 3 000 až 30 000 z 32 767 |
+| Oslovení | „Jarvis“ (anglický i český syntetický hlas) vždy; „Džárvisi“ při prahu 0,63 nikdy, při 0,48 ve 3 ze 4 pokusů, při 0,42 častěji, ale s planými poplachy v tichu. Výchozí práh 0,48 |
+| Zamrzání po oslovení (verze 2.2) | kreslení při rozhovoru trvalo déle než snímek a vyhladovělo řídicí smyčku; opraveno pauzou po každém snímku, vyšší prioritou řízení a rychlejším kreslením |
+| Vytížení procesoru | jádro 0 kolem 10 %; jádro 1 v klidu 22 % (dřív 50 %), při řeči kolem 70 % (dřív 83 %) |
+| Gemini Live z desky | odpovídá hlasem; klíč nového tvaru `AQ.…`; bezplatný tarif model `gemini-3.8-live` povoluje, s nástrojem hledání spojení zavře hláškou o kvótě |
+| Trhaná řeč | uživatel slyšel výpadky po slovech; síla Wi-Fi tehdy −71 dBm a stahování 140 až 190 kB/s s pauzami až 0,7 s. Po zvětšení síťových bufferů, zapnutí SACK a při signálu −55 dBm 690 kB/s a pauzy do 41 ms. Co z toho pomohlo víc, nevím |
+| Zásobník zvuku 300 ms a měření výpadků | při tichých zkouškách 0 až 1 výpadek na odpověď, nejdelší pauza v příjmu 110 až 440 ms |
+| Počasí, připomínka přes nástroj, ohlášení v čas, opakování po 90 s, potvrzení dotykem | viděno ve výpisu, reproduktor ztlumený |
+| Vzhled animací po odlehčení | **neviděno** na displeji; při vypnutých prazích dává nový kód bod po bodu stejný obraz jako původní |
+| Poslech výsledné řeči | **neověřeno** |
 
 ## Deska
 
@@ -115,7 +118,7 @@ Displej, dotyk a zvuk firmware neovládá vlastním kódem, ale přes BSP výrob
 
 ## Co kompilace ani testy neodhalí
 
-- citlivost mikrofonů a oslovení v reálném pokoji
+- oslovení živým hlasem (zkoušeno jen syntetickým z počítače)
 - jestli po odpovědi nezachytí mikrofon dozvuk reproduktoru (pauza 300 ms je odhad)
 - zatížení paměti při souběhu displeje, Wi-Fi, TLS a rozpoznávání
 - chování při slabé Wi-Fi
