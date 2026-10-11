@@ -10,6 +10,7 @@ Každé tvrzení, na kterém firmware stojí, a z čeho vychází. Stav k 10. 10
 | Volná vnitřní paměť | v klidu 85 kB, při rozhovoru 73 kB (před přesunem velkých polí do PSRAM klesala na 10 kB) |
 | Mikrofon | klid v tiché místnosti do 250, řeč z reproduktoru počítače 3 000 až 30 000 z 32 767 |
 | Oslovení | „Jarvis“ (anglický i český syntetický hlas) vždy; „Džárvisi“ při prahu 0,63 nikdy, při 0,48 ve 3 ze 4 pokusů, při 0,42 častěji, ale s planými poplachy v tichu. Výchozí práh 0,48 |
+| Plané poplachy v tichu | 25 minut v tiché místnosti při prahu 0,48: žádné oslovení, 29 snímků za sekundu po celou dobu, žádný restart |
 | Zamrzání po oslovení (verze 2.2) | kreslení při rozhovoru trvalo déle než snímek a vyhladovělo řídicí smyčku; opraveno pauzou po každém snímku, vyšší prioritou řízení a rychlejším kreslením |
 | Vytížení procesoru | jádro 0 kolem 10 %; jádro 1 v klidu 22 % (dřív 50 %), při řeči kolem 70 % (dřív 83 %) |
 | Gemini Live z desky | odpovídá hlasem; klíč nového tvaru `AQ.…`; bezplatný tarif model `gemini-3.8-live` povoluje, s nástrojem hledání spojení zavře hláškou o kvótě |
