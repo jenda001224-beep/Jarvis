@@ -35,6 +35,7 @@
 #include "weather.h"
 
 #define CONNECT_TIMEOUT_MS 12000
+#define CONNECT_ATTEMPTS 3
 #define FIRST_TURN_TIMEOUT_MS 12000
 #define FOLLOW_UP_TIMEOUT_MS 10000
 #define ANSWER_TIMEOUT_MS 15000
@@ -639,6 +640,20 @@ static esp_err_t open_connection(void)
     return err;
 }
 
+static int connect_attempt;
+
+static bool connect_again(const char *why)
+{
+    while (connect_attempt < CONNECT_ATTEMPTS) {
+        connect_attempt++;
+        ESP_LOGW(TAG, "%s, connecting again (attempt %d of %d)", why, connect_attempt, CONNECT_ATTEMPTS);
+        if (open_connection() == ESP_OK) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static void start_session(session_kind_t kind)
 {
     wake_set_armed(false);
@@ -651,9 +666,16 @@ static void start_session(session_kind_t kind)
         wake_clear_capture();
     }
     session_kind = kind;
-    if (open_connection() != ESP_OK) {
-        fail("Nepodařilo se otevřít spojení");
-        return;
+    connect_attempt = 1;
+    esp_err_t opened = open_connection();
+    if (opened != ESP_OK) {
+        ESP_LOGE(TAG, "opening the session failed: %s, %u internal free, largest block %u", esp_err_to_name(opened),
+                 (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                 (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+        if (!connect_again("opening failed")) {
+            fail("Nepodařilo se otevřít spojení");
+            return;
+        }
     }
     announced = false;
     awaiting_answer = false;
@@ -737,6 +759,10 @@ static void on_session_closed(void)
             }
         }
     } else {
+        if (connect_again("connection failed")) {
+            enter(STATE_CONNECTING);
+            return;
+        }
         snprintf(message, sizeof(message), "Gemini se neozval. Zkontroluj Wi-Fi a klíč.");
     }
     fail(message);
@@ -1091,12 +1117,13 @@ static void report(int64_t now)
     int frame_microseconds = 0;
     ui_render_stats(&frames_per_second, &frame_microseconds);
     ESP_LOGI(TAG,
-             "state %d, wifi %d dBm, mic peak %d in %u frames, display %d fps at %d us, heap %u internal (lowest %u), "
-             "%u external",
+             "state %d, wifi %d dBm, mic peak %d in %u frames, display %d fps at %d us, heap %u internal (lowest %u, "
+             "block %u), %u external",
              (int) state, net_signal(), wake_take_peak(), (unsigned) (frames - last_frames), frames_per_second,
              frame_microseconds,
              (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
              (unsigned) heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
              (unsigned) heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     last = now;
     last_frames = frames;
@@ -1132,7 +1159,12 @@ static void supervise(void)
         announce_due();
         break;
     case STATE_CONNECTING:
-        if (now - state_since > CONNECT_TIMEOUT_MS) {
+        if (now - state_since <= CONNECT_TIMEOUT_MS) {
+            break;
+        }
+        if (connect_again("no answer")) {
+            enter(STATE_CONNECTING);
+        } else {
             fail("Gemini se neozval. Zkontroluj Wi-Fi a klíč.");
         }
         break;

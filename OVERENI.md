@@ -13,6 +13,8 @@ Každé tvrzení, na kterém firmware stojí, a z čeho vychází. Stav k 17. 10
 | Volná vnitřní paměť | v klidu 73 až 93 kB, při rozhovoru 50 až 64 kB |
 | Vzhled domova a nastavení | viděno jen v náhledu na Macu (stejný kód LVGL přeložený pro počítač) |
 | Dotyk prstem po otočení, uspání do tmy, ovládání světel z dlaždic | **neověřeno** (hub nespárovaný) |
+| Verze 2.4.1: hlášení „Nepodařilo se otevřít spojení“ u uživatele | příčinu jsem nezachytil (deska se při otevření výpisu restartuje); 50 otevření nastavení a 8 otočení paměť nevyčerpalo (souvislý blok 32 kB). Připojení se teď zkouší až třikrát a chyba se vypisuje i s kódem TLS a socketu |
+| Verze 2.4.1: lampička svítila jen jasem z nastavení | opraveno, při lampičce je jas vždy 100 % |
 
 ## Co ukázala skutečná deska (verze 2.3, výpis přes USB, 11. 10. 2026)
 

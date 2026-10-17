@@ -31,6 +31,7 @@
 #define HEARD_LIMIT 46
 #define SPOKEN_LIMIT 68
 #define DIM_PERCENT 45
+#define LAMP_BRIGHTNESS 100
 #define FRAME_MS 33
 #define REST_MS 5
 #define RENDER_CORE 1
@@ -189,6 +190,11 @@ static void set_brightness(int value)
     }
 }
 
+static int awake_brightness(void)
+{
+    return lamp ? LAMP_BRIGHTNESS : prefs.brightness;
+}
+
 static void append_tail(char *buffer, size_t limit, const char *text)
 {
     size_t have = strlen(buffer);
@@ -257,7 +263,7 @@ static void wake_up(void)
         return;
     }
     asleep = false;
-    set_brightness(prefs.brightness);
+    set_brightness(awake_brightness());
     if (prefs.dark && !home_shown) {
         show_ambient(!is_voice(mode));
         lv_refr_now(NULL);
@@ -279,7 +285,7 @@ static void on_tick(lv_timer_t *timer)
         } else if (!quiet && asleep) {
             wake_up();
         } else if (!asleep) {
-            set_brightness(prefs.brightness);
+            set_brightness(awake_brightness());
         }
     }
     if (voice_text_at && is_voice(mode) && lv_tick_get() >= voice_text_at) {
@@ -512,7 +518,7 @@ void ui_init(uint16_t *framebuffer)
     build();
     lv_refr_now(NULL);
     bsp_display_unlock();
-    set_brightness(prefs.brightness);
+    set_brightness(awake_brightness());
     if (pixels && fx_init(allocate_external)) {
         rendering = true;
         xTaskCreatePinnedToCoreWithCaps(render_task, "render", 6144, NULL, 3, NULL, RENDER_CORE, MALLOC_CAP_SPIRAM);
@@ -627,14 +633,12 @@ void ui_set_lamp(bool on)
     set_visible(lamp_cover, on);
     lv_display_trigger_activity(NULL);
     wake_up();
-    if (on) {
-        set_brightness(100);
-    }
     lv_refr_now(NULL);
     if (!on) {
         repaint = true;
         lamp = false;
     }
+    set_brightness(awake_brightness());
     bsp_display_unlock();
 }
 
@@ -681,7 +685,7 @@ void ui_set_prefs(const home_prefs_t *chosen)
         dock_visible = dock;
     }
     if (!asleep) {
-        set_brightness(prefs.brightness);
+        set_brightness(awake_brightness());
     }
     bsp_display_unlock();
 }

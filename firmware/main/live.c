@@ -178,9 +178,15 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *event)
     case WEBSOCKET_EVENT_DATA:
         on_data(data);
         break;
+    case WEBSOCKET_EVENT_ERROR:
+        if (data) {
+            ESP_LOGW(TAG, "connection error: type %d, tls %s, socket errno %d, handshake status %d",
+                     (int) data->error_handle.error_type, esp_err_to_name(data->error_handle.esp_tls_last_esp_err),
+                     data->error_handle.esp_transport_sock_errno, data->error_handle.esp_ws_handshake_status_code);
+        }
+        /* fall through */
     case WEBSOCKET_EVENT_DISCONNECTED:
     case WEBSOCKET_EVENT_CLOSED:
-    case WEBSOCKET_EVENT_ERROR:
         if (source != client || ended) {
             break;
         }
