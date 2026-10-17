@@ -1,6 +1,18 @@
 # Ověření
 
-Každé tvrzení, na kterém firmware stojí, a z čeho vychází. Stav k 10. 10. 2026.
+Každé tvrzení, na kterém firmware stojí, a z čeho vychází. Stav k 17. 10. 2026.
+
+## Domovská obrazovka a nastavení (verze 2.4, výpis přes USB, 17. 10. 2026)
+
+| Zjištění | Stav |
+|---|---|
+| Dotyk na hodiny otevře domov, koule dole spustí rozhovor, po rozhovoru se vrátí na domov | viděno ve výpisu, dotyky posílané servisní konzolí (`tap X Y`) |
+| Nastavení uspání se uloží a přežije restart | viděno ve výpisu |
+| Otočení 90°, 180°, 270° a zpět | bez pádu a bez zpomalení; prstence a koule otočené bod po bodu stejně jako neotočené (porovnáno v náhledu na Macu); na displeji **neviděno** |
+| Čas snímku | hodiny 9 až 10 ms, domov 2 ms, rozhovor kolem 25 ms; 29 snímků za sekundu |
+| Volná vnitřní paměť | v klidu 73 až 93 kB, při rozhovoru 50 až 64 kB |
+| Vzhled domova a nastavení | viděno jen v náhledu na Macu (stejný kód LVGL přeložený pro počítač) |
+| Dotyk prstem po otočení, uspání do tmy, ovládání světel z dlaždic | **neověřeno** (hub nespárovaný) |
 
 ## Co ukázala skutečná deska (verze 2.3, výpis přes USB, 11. 10. 2026)
 

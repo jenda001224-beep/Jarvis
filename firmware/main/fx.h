@@ -28,3 +28,6 @@ typedef struct {
 
 bool fx_init(void *(*allocate)(size_t size));
 void fx_render(const fx_frame_t *frame, uint16_t *framebuffer);
+void fx_invalidate(void);
+void fx_set_orientation(int quarter);
+void fx_render_orb(uint16_t *framebuffer, int center_y, float radius, float energy, float turn);

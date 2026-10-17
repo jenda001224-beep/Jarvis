@@ -7,3 +7,4 @@ const char *meteo_sky(int code);
 bool meteo_parse_place(const char *json, size_t length, double *latitude, double *longitude, char *name,
                        size_t capacity);
 char *meteo_describe(const char *json, size_t length, const char *place);
+bool meteo_current(const char *json, size_t length, int *celsius, int *code);

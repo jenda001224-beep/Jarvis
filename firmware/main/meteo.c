@@ -148,3 +148,18 @@ char *meteo_describe(const char *json, size_t length, const char *place)
     cJSON_Delete(root);
     return text;
 }
+
+bool meteo_current(const char *json, size_t length, int *celsius, int *code)
+{
+    cJSON *root = cJSON_ParseWithLength(json, length);
+    const cJSON *current = cJSON_GetObjectItemCaseSensitive(root, "current");
+    double temperature;
+    double sky;
+    bool found = value_at(current, "temperature_2m", -1, &temperature) && value_at(current, "weather_code", -1, &sky);
+    if (found) {
+        *celsius = (int) round(temperature);
+        *code = (int) sky;
+    }
+    cJSON_Delete(root);
+    return found;
+}

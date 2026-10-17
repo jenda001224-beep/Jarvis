@@ -12,6 +12,7 @@
 #define LVGL_TASK_STACK 16384
 
 static const char *TAG = "display";
+static lv_display_t *screen;
 
 esp_err_t display_start(uint16_t **framebuffer)
 {
@@ -39,7 +40,7 @@ esp_err_t display_start(uint16_t **framebuffer)
             },
     };
     const lvgl_port_display_rgb_cfg_t rgb = {0};
-    lv_display_t *screen = lvgl_port_add_disp_rgb(&display, &rgb);
+    screen = lvgl_port_add_disp_rgb(&display, &rgb);
     ESP_RETURN_ON_FALSE(screen, ESP_FAIL, TAG, "lvgl display");
 
     esp_lcd_touch_handle_t touch = NULL;
@@ -51,4 +52,11 @@ esp_err_t display_start(uint16_t **framebuffer)
     ESP_RETURN_ON_ERROR(esp_lcd_rgb_panel_get_frame_buffer(panel, 1, &pixels), TAG, "framebuffer");
     *framebuffer = pixels;
     return ESP_OK;
+}
+
+void display_set_orientation(int quarter)
+{
+    if (screen) {
+        lv_display_set_rotation(screen, (lv_display_rotation_t) (quarter & 3));
+    }
 }

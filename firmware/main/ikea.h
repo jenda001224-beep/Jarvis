@@ -2,6 +2,18 @@
 
 #include <stdbool.h>
 
+typedef struct {
+    char id[56];
+    char name[48];
+    char room[32];
+    bool light;
+    bool on;
+    bool reachable;
+    bool color;
+    bool white;
+    int level;
+} ikea_device_t;
+
 typedef enum {
     IKEA_SEARCHING,
     IKEA_NOT_FOUND,
@@ -18,3 +30,5 @@ void ikea_request_pairing(void);
 char *ikea_describe_devices(void);
 char *ikea_tool_get(void);
 char *ikea_tool_set(const char *args_json);
+int ikea_devices(ikea_device_t *out, int capacity);
+void ikea_refresh_soon(void);

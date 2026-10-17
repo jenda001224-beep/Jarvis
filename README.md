@@ -33,7 +33,7 @@ Deska Waveshare **ESP32-S3-Touch-LCD-4B** (4" displej, dva mikrofony, reprodukto
 
 ## Stav
 
-Verze 2.3, ověřeno na skutečné desce 11. 10. 2026.
+Verze 2.4, ověřeno na skutečné desce 17. 10. 2026.
 
 | Co | Stav |
 |---|---|
@@ -42,7 +42,8 @@ Verze 2.3, ověřeno na skutečné desce 11. 10. 2026.
 | Rozhovor s Gemini | běží na desce: dotaz hlasem i psaný přes servisní konzoli, odpověď hlasem, bezplatný tarif |
 | Plynulost řeči | po úpravě sítě 0 až 1 výpadek na odpověď (měřeno na desce se ztlumeným reproduktorem); poslechem **nepotvrzeno** |
 | Počasí, připomínky, samostatné ohlášení a jeho opakování, potvrzení dotykem | běží na desce (zkoušeno potichu přes konzoli) |
-| Animace | 29 snímků za sekundu; v klidu 4,5 ms na snímek, při řeči 21 až 23 ms. Vzhled po odlehčení jsem viděl jen v náhledu na počítači |
+| Animace | 29 snímků za sekundu; hodiny v klidu 9 až 10 ms na snímek, domovská obrazovka 2 ms, při řeči kolem 25 ms. Vzhled jsem viděl jen v náhledu na počítači |
+| Domovská obrazovka, nastavení, otočení displeje | běží na desce (ovládáno dotyky přes konzoli, všechna čtyři otočení bez pádu); na displeji **neviděno**, skutečný dotyk prstem **nezkoušen** |
 | Tiskárna Bambu Lab | čtení stavu otestované na počítači; proti skutečné tiskárně **netestováno** (chybí přístupový kód) |
 | Kalendář a doba cesty | výpočty porovnané s referenční knihovnou na počítači; na desce **netestováno** (chybí odkaz na kalendář) |
 | IKEA světla | hub se najde; spárování a ovládání **netestováno** |
@@ -87,6 +88,18 @@ Když vyplníš i adresu domova, spočítá Jarvis k událostem s místem dobu c
 
 Omezení: zná 14 dní dopředu, časová pásma jiná než české bere jako místní čas a z pravidel opakování umí běžné případy (denně, týdně, měsíčně, ročně, výjimky, přesunuté výskyty).
 
+## Domovská obrazovka
+
+Dotyk na hodiny otevře domovskou obrazovku ve stylu Apple Home: nahoře čas, datum a počasí, pod tím řádek se stavem (rozsvícená světla, tisk, další událost, připomínky) a dlaždice světel a zásuvek z IKEA hubu podle místností.
+
+- **Klepnutí na dlaždici** přepne zapnuto/vypnuto.
+- **Podržení dlaždice** otevře ovládání jasu, odstínu bílé a barvy.
+- **Koule dole uprostřed** začne poslouchat bez oslovení.
+- **Lampa vlevo dole** rozsvítí displej bíle.
+- **Ozubené kolo vpravo dole** otevře nastavení: hlasitost, jas displeje, za jak dlouho usnout (30 s až nikdy), co ukázat po usnutí (ztlumené hodiny nebo tma), otočení displeje po 90°, citlivost na oslovení a informace o zařízení. Všechno se pamatuje i po vypnutí.
+
+Po uplynutí doby uspání se deska vrátí na hodiny se ztlumeným jasem, nebo úplně zhasne. Probudí ji dotyk nebo oslovení.
+
 ## Připomínky
 
 „Jarvisi, připomeň mi v pět, ať vypnu troubu“ nebo odpověď „ano“ na nabídku, že dá vědět, kdy vyrazit. Připomínky přežijí vypnutí desky, vejde se jich osm.
@@ -104,7 +117,8 @@ Když nastane čas, Jarvis promluví sám a zeptá se, jestli ho slyšíš. Sta�
 | „Jarvisi, co dneska budu dělat?“ | dnešní události z kalendáře, u těch s místem i doba cesty |
 | „Jarvisi, připomeň mi za dvacet minut…“ | nastaví připomínku |
 | „Jarvisi, jak bude zítra?“ | předpověď počasí ze služby Open-Meteo |
-| dotyk na displej | začne poslouchat bez oslovení |
+| dotyk na hodiny | otevře domovskou obrazovku |
+| koule na domovské obrazovce | začne poslouchat bez oslovení |
 | dotyk během rozhovoru | ukončí ho |
 | mlčení 10 s po odpovědi | ukončí ho samo |
 
@@ -150,7 +164,7 @@ Zkouška celého rozhovoru proti skutečnému Gemini (potřebuje klíč v `nasta
 cd /Volumes/Jan/Jarvis && TMPDIR=.tools/tmp .tools/venv/bin/python firmware/test/live_check.py
 ```
 
-Servisní konzole: deska čte příkazy z USB. `ask TEXT` položí psaný dotaz, `mute on|off` ztlumí reproduktor, `dry on|off` oslovení jen zapisuje a nezačne rozhovor, `touch` nahradí dotyk, `remind VTEŘINY TEXT` nastaví zkušební připomínku. Dotaz bez mluvení a s výpisem:
+Servisní konzole: deska čte příkazy z USB. `ask TEXT` položí psaný dotaz, `mute on|off` ztlumí reproduktor, `dry on|off` oslovení jen zapisuje a nezačne rozhovor, `touch` nahradí dotyk, `remind VTEŘINY TEXT` nastaví zkušební připomínku, `tap X Y` a `hold X Y` klepnou nebo podrží prst na souřadnici displeje, `turn 0–3` otočí displej po 90°. Dotaz bez mluvení a s výpisem:
 
 ```bash
 cd /Volumes/Jan/Jarvis && source tools/idf-env.sh && python tools/bench.py log --seconds 40 --send "12:ask Kolik je hodin?"
@@ -174,7 +188,7 @@ cd /Volumes/Jan/Jarvis && source tools/idf-env.sh && python tools/bench.py flash
 
 | Složka | Obsah |
 |---|---|
-| `firmware/main/` | firmware: `main.c` řízení a osobnost, `wake.c` oslovení, `live.c` a `proto.c` Gemini, `audio.c` zvuk, `ikea.c` světla, `printer.c` a `bambu.c` tiskárna, `calendar.c` a `agenda.c` kalendář, `travel.c` a `geo.c` doba cesty, `reminders.c` připomínky, `weather.c` a `meteo.c` počasí, `console.c` servisní konzole, `web.c` stahování, `ui.c` texty na displeji, `fx.c` a `scene.c` kreslení a animace koule a prstenců |
+| `firmware/main/` | firmware: `main.c` řízení a osobnost, `wake.c` oslovení, `live.c` a `proto.c` Gemini, `audio.c` zvuk, `ikea.c` světla, `printer.c` a `bambu.c` tiskárna, `calendar.c` a `agenda.c` kalendář, `travel.c` a `geo.c` doba cesty, `reminders.c` připomínky, `weather.c` a `meteo.c` počasí, `console.c` servisní konzole, `web.c` stahování, `ui.c` stránky a přechody mezi nimi, `home.c` domovská obrazovka a nastavení, `control.c` ovládání světel z dotyku, `fx.c` a `scene.c` kreslení a animace koule a prstenců |
 | `firmware/test/` | testy, které běží na počítači |
 | `docs/` | web flasher (GitHub Pages) |
 | `tools/` | sestavení a vydání |

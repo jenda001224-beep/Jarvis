@@ -44,6 +44,7 @@ const char *bambu_stage_text(int stage);
 bool bambu_active(const bambu_status_t *status);
 char *bambu_describe(const bambu_status_t *status, const bambu_text_t *texts, int text_count);
 size_t bambu_summary(const bambu_status_t *status, char *out, size_t capacity);
+size_t bambu_brief(const bambu_status_t *status, char *out, size_t capacity);
 bool bambu_parse_announcement(const char *packet, size_t length, char *address, size_t address_capacity, char *serial,
                               size_t serial_capacity);
 bool bambu_parse_lookup(const char *json, size_t length, char *out, size_t capacity);

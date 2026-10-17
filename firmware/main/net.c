@@ -1,5 +1,6 @@
 #include "net.h"
 
+#include <stdio.h>
 #include <string.h>
 #include <time.h>
 
@@ -72,4 +73,15 @@ int net_signal(void)
 bool net_time_valid(void)
 {
     return time(NULL) > 1700000000;
+}
+
+void net_address(char *out, size_t capacity)
+{
+    esp_netif_ip_info_t info = {0};
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (connected && netif && esp_netif_get_ip_info(netif, &info) == ESP_OK) {
+        snprintf(out, capacity, IPSTR, IP2STR(&info.ip));
+    } else {
+        snprintf(out, capacity, "bez sítě");
+    }
 }

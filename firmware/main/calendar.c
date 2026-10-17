@@ -180,3 +180,27 @@ size_t calendar_today(char *out, size_t capacity)
     xSemaphoreGive(lock);
     return length;
 }
+
+size_t calendar_next(char *out, size_t capacity)
+{
+    out[0] = 0;
+    if (!lock || !events) {
+        return 0;
+    }
+    time_t now = time(NULL);
+    time_t tomorrow = day_start(now, 1);
+    time_t limit = day_start(now, 2);
+    xSemaphoreTake(lock, portMAX_DELAY);
+    for (int i = 0; loaded && i < event_count && !out[0]; i++) {
+        const agenda_event_t *event = &events[i];
+        if (event->all_day || event->start < now || event->start >= limit) {
+            continue;
+        }
+        struct tm start;
+        localtime_r(&event->start, &start);
+        snprintf(out, capacity, "%s%d:%02d %s", event->start >= tomorrow ? "zítra " : "", start.tm_hour, start.tm_min,
+                 event->title[0] ? event->title : "událost");
+    }
+    xSemaphoreGive(lock);
+    return strlen(out);
+}

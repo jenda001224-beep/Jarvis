@@ -16,15 +16,16 @@
 #define ORB_UNIT 256
 #define ORB_REACH 1.55f
 #define EDGE_WIDTH 34
+#define EDGE_LIT 28
 #define RING_REACH 7.0f
 #define MARGIN 1.5f
 #define MAX_SPANS (2 * FX_RINGS + 2)
 #define GLOW_FALL 2.4f
 #ifndef TURN_STEP
-#define TURN_STEP 1.0f
+#define TURN_STEP 0.5f
 #define RADIUS_STEP 0.2f
 #define ALPHA_STEP 0.012f
-#define ENERGY_STEP 0.04f
+#define ENERGY_STEP 0.02f
 #define ALPHA_FLOOR 8
 #endif
 #define EDGE_STEPS 256
@@ -92,11 +93,12 @@ static float shown_reach;
 static float shown_orb;
 static float shown_energy;
 static float shown_hole;
-static int shown_center;
+static int shown_center_x;
+static int shown_center_y;
+static int orientation;
 static bool shown_valid;
-static int edge_strength[2];
-static int edge_shift[2];
-static int edge_half;
+static int edge_strength;
+static int edge_shift;
 
 static float clampf(float value, float low, float high)
 {
@@ -417,15 +419,16 @@ static inline uint16_t edge_corner(int x, int y, int depth)
 
 static void render_edge(const fx_frame_t *frame, uint16_t *framebuffer)
 {
-    int strength = (int) (256.0f * clampf(frame->edge, 0.0f, 1.0f)) & ~3;
-    int shift = (int) (frame->edge_turn * 256.0f) & ~1;
-    int half = edge_half;
-    edge_half ^= 1;
-    if (strength == edge_strength[half] && (strength == 0 || shift == edge_shift[half])) {
+    int strength = (int) (256.0f * clampf(frame->edge, 0.0f, 1.0f));
+    int shift = (int) (frame->edge_turn * 256.0f);
+    if (strength < 3) {
+        strength = 0;
+    }
+    if (strength == edge_strength && (strength == 0 || shift == edge_shift)) {
         return;
     }
-    edge_strength[half] = strength;
-    edge_shift[half] = shift;
+    edge_strength = strength;
+    edge_shift = shift;
     for (int step = 0; step < EDGE_STEPS; step++) {
         const uint8_t *color = edge_palette[(step + shift) & 255];
         int gain = strength * (150 + ((sine[(step * 2 - shift * 3) & 255] * 106) >> 8));
@@ -435,38 +438,65 @@ static void render_edge(const fx_frame_t *frame, uint16_t *framebuffer)
                 pack((color[0] * level) >> 8, (color[1] * level) >> 8, (color[2] * level) >> 8);
         }
     }
-    if (half == 0) {
-        for (int depth = 0; depth < EDGE_WIDTH; depth++) {
-            int low = FX_HEIGHT - 1 - depth;
-            uint16_t *top = framebuffer + depth * FX_WIDTH;
-            uint16_t *bottom = framebuffer + low * FX_WIDTH;
-            for (int x = 0; x < FX_WIDTH; x++) {
-                int side = x < FX_WIDTH - 1 - x ? x : FX_WIDTH - 1 - x;
-                if (side < depth) {
-                    top[x] = edge_corner(x, depth, side);
-                    bottom[x] = edge_corner(x, low, side);
-                } else {
-                    top[x] = edge_color[top_step[x]][depth];
-                    bottom[x] = edge_color[bottom_step[x]][depth];
-                }
+    for (int depth = 0; depth < EDGE_LIT; depth++) {
+        int low = FX_HEIGHT - 1 - depth;
+        uint16_t *top = framebuffer + depth * FX_WIDTH;
+        uint16_t *bottom = framebuffer + low * FX_WIDTH;
+        for (int x = 0; x < FX_WIDTH; x++) {
+            int side = x < FX_WIDTH - 1 - x ? x : FX_WIDTH - 1 - x;
+            if (side < depth) {
+                top[x] = edge_corner(x, depth, side);
+                bottom[x] = edge_corner(x, low, side);
+            } else {
+                top[x] = edge_color[top_step[x]][depth];
+                bottom[x] = edge_color[bottom_step[x]][depth];
             }
         }
-        return;
     }
-    for (int y = EDGE_WIDTH; y < FX_HEIGHT - EDGE_WIDTH; y++) {
+    for (int y = EDGE_LIT; y < FX_HEIGHT - EDGE_LIT; y++) {
         uint16_t *row = framebuffer + y * FX_WIDTH;
         const uint16_t *left = edge_color[edge_step(3 * FX_WIDTH + (FX_HEIGHT - 1 - y))];
         const uint16_t *right = edge_color[edge_step(FX_WIDTH + y)];
-        for (int x = 0; x < EDGE_WIDTH; x++) {
+        for (int x = 0; x < EDGE_LIT; x++) {
             row[x] = left[x];
             row[FX_WIDTH - 1 - x] = right[x];
         }
     }
 }
 
-static void render_span(const fx_frame_t *frame, uint16_t *framebuffer, const span_t *span, const orb_t *orb,
-                        const int *rotation, int center)
+static void place(int logical_y, int *x, int *y)
 {
+    switch (orientation) {
+    case 1:
+        *x = logical_y;
+        *y = HALF;
+        break;
+    case 2:
+        *x = HALF;
+        *y = FX_HEIGHT - logical_y;
+        break;
+    case 3:
+        *x = FX_WIDTH - logical_y;
+        *y = HALF;
+        break;
+    default:
+        *x = HALF;
+        *y = logical_y;
+        break;
+    }
+}
+
+static inline void put(uint16_t *row, int x, uint16_t value)
+{
+    if (row && x >= 0 && x < FX_WIDTH) {
+        row[x] = value;
+    }
+}
+
+static void render_span(const fx_frame_t *frame, uint16_t *framebuffer, const span_t *span, const orb_t *orb,
+                        const int *rotation, int center_x, int center)
+{
+    int spin = (4 - orientation) * QUADRANT;
     int low_units = (int) (span->low * QUARTER);
     int high_units = (int) (span->high * QUARTER);
     int hole_units = (int) (frame->hole * QUARTER);
@@ -495,40 +525,32 @@ static void render_span(const fx_frame_t *frame, uint16_t *framebuffer, const sp
             if (radius < low_units || radius < hole_units) {
                 continue;
             }
-            int left = HALF - 1 - dx;
-            int right = HALF + dx;
+            int left = center_x - 1 - dx;
+            int right = center_x + dx;
             radial_t cell = radial[radius];
             if (cell.band == 0) {
                 if (dark[radius]) {
                     continue;
                 }
-                if (upper) {
-                    upper[left] = 0;
-                    upper[right] = 0;
-                }
-                if (lower) {
-                    lower[left] = 0;
-                    lower[right] = 0;
-                }
+                put(upper, left, 0);
+                put(upper, right, 0);
+                put(lower, left, 0);
+                put(lower, right, 0);
                 continue;
             }
             int angle = entry->angle;
-            int up_right = angle;
-            int up_left = 2 * QUADRANT - angle;
-            int down_left = 2 * QUADRANT + angle;
-            int down_right = 4 * QUADRANT - angle;
+            int up_right = angle + spin;
+            int up_left = 2 * QUADRANT - angle + spin;
+            int down_left = 2 * QUADRANT + angle + spin;
+            int down_right = 4 * QUADRANT - angle + spin;
             if (cell.band == ORB_BAND) {
                 int index = (radius * orb->scale) >> 12;
                 bool flat = index >= ORB_STEPS || orb_lit[index] == 0;
                 uint16_t glow = index >= ORB_STEPS ? 0 : orb_glow[index];
-                if (upper) {
-                    upper[right] = flat ? glow : shade_orb(orb, index, up_right);
-                    upper[left] = flat ? glow : shade_orb(orb, index, up_left);
-                }
-                if (lower) {
-                    lower[left] = flat ? glow : shade_orb(orb, index, down_left);
-                    lower[right] = flat ? glow : shade_orb(orb, index, down_right);
-                }
+                put(upper, right, flat ? glow : shade_orb(orb, index, up_right & ANGLE_MASK));
+                put(upper, left, flat ? glow : shade_orb(orb, index, up_left & ANGLE_MASK));
+                put(lower, left, flat ? glow : shade_orb(orb, index, down_left & ANGLE_MASK));
+                put(lower, right, flat ? glow : shade_orb(orb, index, down_right & ANGLE_MASK));
                 continue;
             }
             int band = cell.band - 1;
@@ -536,14 +558,10 @@ static void render_span(const fx_frame_t *frame, uint16_t *framebuffer, const sp
             const uint16_t *colors = ramp[band];
             int gain = cell.alpha * 256;
             int turn = rotation[band];
-            if (upper) {
-                upper[right] = colors[(arcs[(up_right + turn) & ANGLE_MASK] * gain) >> 16];
-                upper[left] = colors[(arcs[(up_left + turn) & ANGLE_MASK] * gain) >> 16];
-            }
-            if (lower) {
-                lower[left] = colors[(arcs[(down_left + turn) & ANGLE_MASK] * gain) >> 16];
-                lower[right] = colors[(arcs[(down_right + turn) & ANGLE_MASK] * gain) >> 16];
-            }
+            put(upper, right, colors[(arcs[(up_right + turn) & ANGLE_MASK] * gain) >> 16]);
+            put(upper, left, colors[(arcs[(up_left + turn) & ANGLE_MASK] * gain) >> 16]);
+            put(lower, left, colors[(arcs[(down_left + turn) & ANGLE_MASK] * gain) >> 16]);
+            put(lower, right, colors[(arcs[(down_right + turn) & ANGLE_MASK] * gain) >> 16]);
         }
     }
 }
@@ -554,8 +572,11 @@ void fx_render(const fx_frame_t *frame, uint16_t *framebuffer)
     if (recolored) {
         build_ramps(clampf(frame->warmth, 0.0f, 1.0f));
     }
-    int center = (int) (frame->center_y + 0.5f);
-    bool everything = recolored || !shown_valid || center != shown_center || frame->hole != shown_hole;
+    int center_x;
+    int center;
+    place((int) (frame->center_y + 0.5f), &center_x, &center);
+    bool everything = recolored || !shown_valid || center != shown_center_y || center_x != shown_center_x ||
+                      frame->hole != shown_hole;
 
     span_t spans[MAX_SPANS];
     int span_count = 0;
@@ -581,14 +602,17 @@ void fx_render(const fx_frame_t *frame, uint16_t *framebuffer)
     if (changed) {
         float extent = build_radial(reach);
         if (everything) {
-            float moved = shown_valid ? fabsf((float) (center - shown_center)) : HALF;
+            float moved = shown_valid ? fabsf((float) (center - shown_center_y)) +
+                                            fabsf((float) (center_x - shown_center_x))
+                                      : HALF;
             float clear = extent > shown_extent + moved ? extent : shown_extent + moved;
             span_count = 0;
             add_span(spans, &span_count, 0.0f, clear + MARGIN);
             memset(dark, 0, sizeof(dark));
         }
         shown_extent = extent;
-        shown_center = center;
+        shown_center_x = center_x;
+        shown_center_y = center;
         shown_hole = frame->hole;
         shown_valid = true;
 
@@ -609,7 +633,7 @@ void fx_render(const fx_frame_t *frame, uint16_t *framebuffer)
         }
         span_count = merge_spans(spans, span_count);
         for (int i = 0; i < span_count; i++) {
-            render_span(frame, framebuffer, &spans[i], &orb, rotation, center);
+            render_span(frame, framebuffer, &spans[i], &orb, rotation, center_x, center);
             int last = (int) (spans[i].high * QUARTER);
             for (int index = (int) (spans[i].low * QUARTER) + 1; index < last; index++) {
                 dark[index] = radial[index].band == 0;
@@ -617,4 +641,42 @@ void fx_render(const fx_frame_t *frame, uint16_t *framebuffer)
         }
     }
     render_edge(frame, framebuffer);
+}
+
+void fx_invalidate(void)
+{
+    shown_valid = false;
+    edge_strength = -1;
+}
+
+void fx_render_orb(uint16_t *framebuffer, int center_y, float radius, float energy, float turn)
+{
+    float reach = radius * ORB_REACH;
+    int last = (int) ((reach + MARGIN + 1.0f) * QUARTER);
+    for (int i = 0; i <= last && i < RADIAL_ENTRIES; i++) {
+        radial[i].band = (float) i / QUARTER <= reach ? ORB_BAND : 0;
+        radial[i].alpha = radial[i].band ? 255 : 0;
+        dark[i] = 0;
+    }
+    orb_t orb = {
+        .scale = (int) (4096.0f * ORB_UNIT / (radius * QUARTER)),
+        .energy = (int) (256.0f * clampf(energy, 0.0f, 1.0f)),
+        .phase = {(int) (turn * 256.0f) & 255, (int) (-turn * 0.63f * 256.0f) & 255,
+                  (int) (turn * 0.37f * 256.0f + 80.0f) & 255},
+    };
+    prepare_orb(&orb);
+    fx_frame_t frame = {0};
+    span_t span = {0.0f, reach + MARGIN};
+    int rotation[FX_RINGS] = {0};
+    int x;
+    int y;
+    place(center_y, &x, &y);
+    render_span(&frame, framebuffer, &span, &orb, rotation, x, y);
+    shown_valid = false;
+}
+
+void fx_set_orientation(int quarter)
+{
+    orientation = quarter & 3;
+    fx_invalidate();
 }

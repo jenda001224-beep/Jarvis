@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #define SETTINGS_CALENDARS 3
 
@@ -27,5 +28,7 @@ bool settings_load(void);
 const settings_t *settings_get(void);
 bool settings_read_hub_token(char *out, size_t capacity);
 void settings_write_hub_token(const char *token);
+uint32_t settings_read_number(const char *name);
+void settings_write_number(const char *name, uint32_t value);
 size_t settings_read_reminders(void *out, size_t capacity);
 void settings_write_reminders(const void *data, size_t length);

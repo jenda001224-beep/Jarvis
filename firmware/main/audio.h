@@ -20,6 +20,7 @@ void audio_play(const int16_t *pcm, size_t samples);
 void audio_finish(void);
 void audio_flush(void);
 void audio_set_muted(bool muted);
+void audio_set_volume(int volume);
 bool audio_muted(void);
 void audio_take_stats(audio_stats_t *stats);
 bool audio_playing(void);

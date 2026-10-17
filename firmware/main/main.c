@@ -10,7 +10,9 @@
 #include "cJSON.h"
 #include "calendar.h"
 #include "console.h"
+#include "control.h"
 #include "display.h"
+#include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -21,6 +23,7 @@
 #include "ikea.h"
 #include "live.h"
 #include "memory.h"
+#include "meteo.h"
 #include "freertos/semphr.h"
 #include "net.h"
 #include "printer.h"
@@ -38,6 +41,8 @@
 #define STATUS_INTERVAL_MS 2000
 #define RESERVE_MINUTES 15
 #define CONTROL_PRIORITY 6
+#define SEARCH_REFUSED "no_search"
+#define HOME_INTERVAL_MS 1000
 #define STALLED_REPLY_TIMEOUT_MS 5000
 #define SESSION_LIMIT_MS (9 * 60 * 1000)
 #define ERROR_SHOWN_MS 5000
@@ -192,6 +197,7 @@ static volatile bool new_turn;
 static volatile bool tool_busy;
 static volatile int heard_letters;
 static bool search_allowed = true;
+static uint32_t key_mark;
 static bool turn_complete;
 static bool replied;
 static int64_t state_since;
@@ -582,24 +588,6 @@ static void enter(state_t next)
     state_since = now_ms();
 }
 
-static void show_hub(void)
-{
-    switch (ikea_state()) {
-    case IKEA_UNPAIRED:
-        ui_set_hub(UI_HUB_PAIR_OFFER, 0);
-        break;
-    case IKEA_PAIRING:
-        ui_set_hub(UI_HUB_PAIRING, 0);
-        break;
-    case IKEA_READY:
-        ui_set_hub(UI_HUB_READY, ikea_device_count());
-        break;
-    default:
-        ui_set_hub(UI_HUB_HIDDEN, 0);
-        break;
-    }
-}
-
 static void go_idle(void)
 {
     end_announcement(false);
@@ -741,6 +729,7 @@ static void on_session_closed(void)
         snprintf(message, sizeof(message), "Gemini: %s", reason);
         if (settings_get()->search && search_allowed) {
             search_allowed = false;
+            settings_write_number(SEARCH_REFUSED, key_mark);
             ESP_LOGW(TAG, "trying again without search");
             if (open_connection() == ESP_OK) {
                 enter(STATE_CONNECTING);
@@ -751,6 +740,180 @@ static void on_session_closed(void)
         snprintf(message, sizeof(message), "Gemini se neozval. Zkontroluj Wi-Fi a klíč.");
     }
     fail(message);
+}
+
+static home_prefs_t prefs;
+
+static uint32_t paired_value(int base, int value)
+{
+    return ((uint32_t) (base + 1) << 8) | (uint32_t) (value + 1);
+}
+
+static int stored_value(const char *name, int fallback, int low, int high)
+{
+    uint32_t stored = settings_read_number(name);
+    int value = stored ? (int) (stored & 0xFF) - 1 : fallback;
+    return value < low || value > high ? fallback : value;
+}
+
+static int stored_pair(const char *name, int base, int low, int high)
+{
+    uint32_t stored = settings_read_number(name);
+    if (!stored || (int) (stored >> 8) != base + 1) {
+        return base;
+    }
+    int value = (int) (stored & 0xFF) - 1;
+    return value < low || value > high ? base : value;
+}
+
+static void load_prefs(void)
+{
+    const settings_t *settings = settings_get();
+    prefs.volume = stored_pair("volume", settings->volume, 0, 100);
+    prefs.sensitivity = stored_pair("sensitivity", settings->sensitivity, 0, 2);
+    prefs.brightness = stored_value("brightness", 100, 10, 100);
+    prefs.sleep = stored_value("sleep", 1, 0, HOME_SLEEP_CHOICES - 1);
+    prefs.dark = stored_value("dark", 0, 0, 1);
+    prefs.orientation = stored_value("orientation", 0, 0, 3);
+}
+
+static void apply_prefs(home_prefs_t chosen)
+{
+    const settings_t *settings = settings_get();
+    if (chosen.volume != prefs.volume) {
+        audio_set_volume(chosen.volume);
+        settings_write_number("volume", paired_value(settings->volume, chosen.volume));
+    }
+    if (chosen.sensitivity != prefs.sensitivity) {
+        wake_set_sensitivity(chosen.sensitivity);
+        settings_write_number("sensitivity", paired_value(settings->sensitivity, chosen.sensitivity));
+    }
+    if (chosen.brightness != prefs.brightness) {
+        settings_write_number("brightness", (uint32_t) chosen.brightness + 1);
+    }
+    if (chosen.sleep != prefs.sleep) {
+        settings_write_number("sleep", (uint32_t) chosen.sleep + 1);
+    }
+    if (chosen.dark != prefs.dark) {
+        settings_write_number("dark", (uint32_t) chosen.dark + 1);
+    }
+    if (chosen.orientation != prefs.orientation) {
+        settings_write_number("orientation", (uint32_t) chosen.orientation + 1);
+    }
+    prefs = chosen;
+    ui_set_prefs(&prefs);
+    ESP_LOGI(TAG, "preferences: volume %d, brightness %d, sleep %d, dark %d, orientation %d, sensitivity %d",
+             prefs.volume, prefs.brightness, prefs.sleep, prefs.dark, prefs.orientation, prefs.sensitivity);
+}
+
+static void change_prefs(void)
+{
+    home_prefs_t chosen;
+    if (ui_take_prefs(&chosen)) {
+        apply_prefs(chosen);
+    }
+}
+
+static void capitals(const char *in, char *out, size_t capacity)
+{
+    size_t used = 0;
+    while (*in && used + 3 < capacity) {
+        unsigned char lead = (unsigned char) in[0];
+        if (lead < 0x80) {
+            out[used++] = (char) (lead >= 'a' && lead <= 'z' ? lead - 32 : lead);
+            in++;
+            continue;
+        }
+        if ((lead & 0xE0) != 0xC0 || !in[1]) {
+            out[used++] = (char) lead;
+            in++;
+            continue;
+        }
+        unsigned code = ((lead & 0x1Fu) << 6) | ((unsigned char) in[1] & 0x3Fu);
+        if (code >= 0xE0 && code <= 0xFE && code != 0xF7) {
+            code -= 0x20;
+        } else if (((code >= 0x100 && code <= 0x137) || (code >= 0x14A && code <= 0x177)) && (code & 1)) {
+            code -= 1;
+        } else if (((code >= 0x139 && code <= 0x148) || (code >= 0x179 && code <= 0x17E)) && !(code & 1)) {
+            code -= 1;
+        }
+        out[used++] = (char) (0xC0 | (code >> 6));
+        out[used++] = (char) (0x80 | (code & 0x3F));
+        in += 2;
+    }
+    out[used] = 0;
+}
+
+static bool is_strip(const char *name)
+{
+    return strstr(name, "pásek") || strstr(name, "Pásek") || strstr(name, "strip") || strstr(name, "Strip") ||
+           strstr(name, "LED");
+}
+
+static int compare_devices(const void *left, const void *right)
+{
+    const home_device_t *a = left;
+    const home_device_t *b = right;
+    int room = strcmp(a->room, b->room);
+    return room ? room : strcmp(a->name, b->name);
+}
+
+static void update_home(int64_t now)
+{
+    static int64_t last;
+    static EXTERNAL_RAM home_data_t data;
+    static EXTERNAL_RAM ikea_device_t found[HOME_DEVICES];
+    if (now - last < HOME_INTERVAL_MS) {
+        return;
+    }
+    last = now;
+    memset(&data, 0, sizeof(data));
+    int code = 0;
+    data.weather = weather_current(&data.celsius, &code);
+    data.sky = code;
+    if (data.weather) {
+        capitals(meteo_sky(code), data.sky_text, sizeof(data.sky_text));
+    }
+    printer_brief(data.printer, sizeof(data.printer));
+    calendar_next(data.event, sizeof(data.event));
+    xSemaphoreTake(reminder_lock, portMAX_DELAY);
+    data.reminders = reminders_pending(NULL, 0);
+    xSemaphoreGive(reminder_lock);
+    switch (ikea_state()) {
+    case IKEA_UNPAIRED:
+        data.hub = HOME_HUB_OFFER;
+        break;
+    case IKEA_PAIRING:
+        data.hub = HOME_HUB_PAIRING;
+        break;
+    case IKEA_READY:
+        data.hub = HOME_HUB_READY;
+        break;
+    default:
+        data.hub = HOME_HUB_HIDDEN;
+        break;
+    }
+    int count = ikea_devices(found, HOME_DEVICES);
+    for (int i = 0; i < count; i++) {
+        home_device_t *device = &data.devices[i];
+        strlcpy(device->id, found[i].id, sizeof(device->id));
+        strlcpy(device->name, found[i].name[0] ? found[i].name : "bez názvu", sizeof(device->name));
+        capitals(found[i].room, device->room, sizeof(device->room));
+        device->kind = !found[i].light ? HOME_OUTLET : is_strip(found[i].name) ? HOME_STRIP : HOME_LIGHT;
+        device->on = found[i].on;
+        device->reachable = found[i].reachable;
+        device->color = found[i].color;
+        device->white = found[i].white;
+        device->level = found[i].level > 0 ? found[i].level : 0;
+    }
+    qsort(data.devices, (size_t) count, sizeof(home_device_t), compare_devices);
+    data.device_count = count;
+    data.prefs = prefs;
+    char address[20];
+    net_address(address, sizeof(address));
+    snprintf(data.info, sizeof(data.info), "Jarvis %s · Wi-Fi %d dBm · %s", esp_app_get_description()->version,
+             net_signal(), address);
+    ui_home_update(&data);
 }
 
 static void on_console(void)
@@ -773,6 +936,16 @@ static void on_console(void)
         audio_set_muted(on);
     } else if (strcmp(line, "dry") == 0) {
         dry = on;
+    } else if (strcmp(line, "turn") == 0 && argument[0] >= '0' && argument[0] <= '3') {
+        home_prefs_t chosen = prefs;
+        chosen.orientation = argument[0] - '0';
+        apply_prefs(chosen);
+    } else if (strcmp(line, "tap") == 0 || strcmp(line, "hold") == 0) {
+        int x = 0;
+        int y = 0;
+        if (sscanf(argument, "%d %d", &x, &y) == 2) {
+            ui_touch(x, y, line[0] == 't' ? 90 : 900);
+        }
     } else if (strcmp(line, "touch") == 0) {
         app_post(APP_EVENT_TOUCH);
     } else if (strcmp(line, "remind") == 0 && net_time_valid()) {
@@ -882,7 +1055,17 @@ static void handle(app_event_t event)
         ikea_request_pairing();
         break;
     case APP_EVENT_HUB_CHANGED:
-        show_hub();
+        break;
+    case APP_EVENT_TALK:
+        if (state == STATE_IDLE) {
+            start_session(SESSION_TOUCH);
+        }
+        break;
+    case APP_EVENT_LAMP:
+        ui_set_lamp(!ui_lamp());
+        break;
+    case APP_EVENT_PREFS:
+        change_prefs();
         break;
     case APP_EVENT_HUB_PAIRED:
         settings_write_hub_token(ikea_token());
@@ -940,6 +1123,7 @@ static void supervise(void)
     int64_t now = now_ms();
     report(now);
     show_printer(now);
+    update_home(now);
     if (tool_busy) {
         last_activity = now;
     }
@@ -1014,12 +1198,16 @@ void app_main(void)
     checkpoint("ui");
 
     bool configured = settings_load();
-    if (audio_init(settings_get()->volume) != ESP_OK) {
+    load_prefs();
+    ui_set_prefs(&prefs);
+    if (audio_init(prefs.volume) != ESP_OK) {
         ESP_LOGE(TAG, "audio failed to start");
     } else {
         checkpoint("audio");
         if (wake_start() != ESP_OK) {
             ESP_LOGE(TAG, "wake word failed to start");
+        } else {
+            wake_set_sensitivity(prefs.sensitivity);
         }
     }
     checkpoint("wake word");
@@ -1029,6 +1217,12 @@ void app_main(void)
         return;
     }
 
+    key_mark = 2166136261U;
+    for (const char *c = settings_get()->api_key; *c; c++) {
+        key_mark = (key_mark ^ (unsigned char) *c) * 16777619U;
+    }
+    key_mark |= 1;
+    search_allowed = settings_read_number(SEARCH_REFUSED) != key_mark;
     const live_callbacks_t callbacks = {.heard = on_heard, .spoken = on_spoken, .tool = on_tool};
     live_init(&callbacks);
     xTaskCreatePinnedToCoreWithCaps(uplink_task, "uplink", 6144, NULL, 5, NULL, 0, MALLOC_CAP_SPIRAM);
@@ -1044,6 +1238,8 @@ void app_main(void)
     ikea_start(hub_token);
     printer_start();
     calendar_start();
+    weather_start();
+    control_start();
     console_start();
 
     vTaskPrioritySet(NULL, CONTROL_PRIORITY);

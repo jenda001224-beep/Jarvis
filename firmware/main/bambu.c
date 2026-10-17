@@ -304,6 +304,26 @@ size_t bambu_summary(const bambu_status_t *status, char *out, size_t capacity)
     return written < 0 ? 0 : (size_t) written < capacity ? (size_t) written : capacity - 1;
 }
 
+size_t bambu_brief(const bambu_status_t *status, char *out, size_t capacity)
+{
+    out[0] = 0;
+    if (!bambu_active(status)) {
+        return 0;
+    }
+    int written;
+    if (strcmp(status->state, "PAUSE") == 0) {
+        written = snprintf(out, capacity, "tisk stojí");
+    } else if (status->percent < 0) {
+        written = snprintf(out, capacity, "tiskne");
+    } else if (status->remaining_minutes > 0) {
+        written = snprintf(out, capacity, "%d %% · %d:%02d", status->percent, status->remaining_minutes / 60,
+                           status->remaining_minutes % 60);
+    } else {
+        written = snprintf(out, capacity, "%d %%", status->percent);
+    }
+    return written < 0 ? 0 : (size_t) written < capacity ? (size_t) written : capacity - 1;
+}
+
 static bool header_value(const char *packet, size_t length, const char *name, char *out, size_t capacity)
 {
     size_t name_length = strlen(name);

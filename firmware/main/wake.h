@@ -8,6 +8,7 @@
 #include "freertos/FreeRTOS.h"
 
 esp_err_t wake_start(void);
+void wake_set_sensitivity(int level);
 void wake_set_armed(bool armed);
 void wake_set_capture(bool capture);
 void wake_clear_capture(void);

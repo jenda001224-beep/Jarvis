@@ -28,15 +28,7 @@
 #define REFRESH_INTERVAL_MS (5 * 60 * 1000)
 #define SEARCH_INTERVAL_MS (60 * 1000)
 
-typedef struct {
-    char id[56];
-    char name[48];
-    char room[32];
-    bool light;
-    bool on;
-    bool reachable;
-    int level;
-} device_t;
+typedef ikea_device_t device_t;
 
 typedef struct {
     char *data;
@@ -279,6 +271,8 @@ static int refresh(void)
         device->reachable = !cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(entry, "isReachable"));
         const cJSON *level = cJSON_GetObjectItemCaseSensitive(attributes, "lightLevel");
         device->level = cJSON_IsNumber(level) ? level->valueint : -1;
+        device->color = cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(attributes, "colorHue"));
+        device->white = cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(attributes, "colorTemperature"));
         if (device->id[0]) {
             count++;
         }
@@ -484,12 +478,22 @@ char *ikea_tool_set(const char *args_json)
         bool ok = true;
         if (cJSON_IsBool(on)) {
             ok = patch(device, cJSON_IsTrue(on) ? "\"isOn\":true" : "\"isOn\":false");
+            if (ok) {
+                xSemaphoreTake(table_lock, portMAX_DELAY);
+                device->on = cJSON_IsTrue(on);
+                xSemaphoreGive(table_lock);
+            }
         }
         if (ok && cJSON_IsNumber(brightness) && device->light) {
             int level = brightness->valueint < 1 ? 1 : brightness->valueint > 100 ? 100 : brightness->valueint;
             char attribute[32];
             snprintf(attribute, sizeof(attribute), "\"lightLevel\":%d", level);
             ok = patch(device, attribute);
+            if (ok) {
+                xSemaphoreTake(table_lock, portMAX_DELAY);
+                device->level = level;
+                xSemaphoreGive(table_lock);
+            }
         }
         if (ok && cJSON_IsNumber(hue) && device->light) {
             double degrees = hue->valuedouble < 0 ? 0 : hue->valuedouble > 360 ? 360 : hue->valuedouble;
@@ -520,4 +524,23 @@ char *ikea_tool_set(const char *args_json)
     cJSON_AddNumberToObject(root, "changed", changed);
     cJSON_AddNumberToObject(root, "failed", failed);
     return print_and_free(root);
+}
+
+int ikea_devices(ikea_device_t *out, int capacity)
+{
+    if (!table_lock || state != IKEA_READY) {
+        return 0;
+    }
+    xSemaphoreTake(table_lock, portMAX_DELAY);
+    int count = device_count < capacity ? device_count : capacity;
+    memcpy(out, devices, (size_t) count * sizeof(ikea_device_t));
+    xSemaphoreGive(table_lock);
+    return count;
+}
+
+void ikea_refresh_soon(void)
+{
+    if (task) {
+        xTaskNotifyGive(task);
+    }
 }

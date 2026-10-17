@@ -149,3 +149,25 @@ void settings_write_reminders(const void *data, size_t length)
     nvs_commit(handle);
     nvs_close(handle);
 }
+
+uint32_t settings_read_number(const char *name)
+{
+    nvs_handle_t handle;
+    uint32_t value = 0;
+    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle) == ESP_OK) {
+        nvs_get_u32(handle, name, &value);
+        nvs_close(handle);
+    }
+    return value;
+}
+
+void settings_write_number(const char *name, uint32_t value)
+{
+    nvs_handle_t handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) != ESP_OK) {
+        return;
+    }
+    nvs_set_u32(handle, name, value);
+    nvs_commit(handle);
+    nvs_close(handle);
+}

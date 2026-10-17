@@ -22,7 +22,7 @@
 #define POLL_MS 20
 #define DRAINED_AFTER_POLLS 10
 #define AMPLIFIER_OFF_AFTER_POLLS 100
-#define START_BYTES (AUDIO_SAMPLE_RATE * sizeof(int16_t) * 3 / 10)
+#define START_BYTES (AUDIO_SAMPLE_RATE * sizeof(int16_t) / 5)
 #define START_WAIT_MS 600
 
 static const char *TAG = "audio";
@@ -233,6 +233,13 @@ void audio_set_muted(bool value)
 {
     muted = value;
     esp_codec_dev_set_out_mute(speaker, value);
+}
+
+void audio_set_volume(int volume)
+{
+    volume = volume < 0 ? 0 : volume > 100 ? 100 : volume;
+    esp_codec_dev_set_out_vol(speaker, volume);
+    audio_set_muted(volume == 0);
 }
 
 bool audio_muted(void)

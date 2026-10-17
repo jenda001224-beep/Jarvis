@@ -444,3 +444,15 @@ size_t printer_summary(char *out, size_t capacity)
     xSemaphoreGive(lock);
     return length;
 }
+
+size_t printer_brief(char *out, size_t capacity)
+{
+    out[0] = 0;
+    if (!lock || !connected) {
+        return 0;
+    }
+    xSemaphoreTake(lock, portMAX_DELAY);
+    size_t length = bambu_brief(&status, out, capacity);
+    xSemaphoreGive(lock);
+    return length;
+}

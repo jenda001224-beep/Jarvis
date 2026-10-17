@@ -19,6 +19,9 @@ typedef enum {
     APP_EVENT_HUB_PAIRED,
     APP_EVENT_REMINDERS_CHANGED,
     APP_EVENT_CONSOLE,
+    APP_EVENT_TALK,
+    APP_EVENT_LAMP,
+    APP_EVENT_PREFS,
 } app_event_t;
 
 void app_post(app_event_t event);

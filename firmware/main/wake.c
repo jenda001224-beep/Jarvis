@@ -12,7 +12,6 @@
 #include "freertos/stream_buffer.h"
 #include "freertos/task.h"
 #include "model_path.h"
-#include "settings.h"
 
 #define CAPTURE_SECONDS 4
 #define CAPTURE_BYTES (AUDIO_SAMPLE_RATE * sizeof(int16_t) * CAPTURE_SECONDS)
@@ -108,7 +107,6 @@ esp_err_t wake_start(void)
     if (!afe_data) {
         return ESP_FAIL;
     }
-    afe->set_wakenet_threshold(afe_data, 1, THRESHOLDS[settings_get()->sensitivity]);
 
     uint8_t *storage = heap_caps_malloc(CAPTURE_BYTES + 1, MALLOC_CAP_SPIRAM);
     if (!storage) {
@@ -179,4 +177,11 @@ int wake_take_peak(void)
 uint32_t wake_frame_count(void)
 {
     return frames;
+}
+
+void wake_set_sensitivity(int level)
+{
+    if (afe_data) {
+        afe->set_wakenet_threshold(afe_data, 1, THRESHOLDS[level < 0 ? 0 : level > 2 ? 2 : level]);
+    }
 }
