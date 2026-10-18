@@ -1,0 +1,88 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		03C57C7239DC510A8B8BB130 /* JarvisApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21C55A778BEDC53518BAD436; };
+		12C65E3F8363C18626E5CF2C /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7FB24A6B921C1A960CBC183; };
+		37CBA5B195ADE0E1FBB9A43F /* Discovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB4A64A8FE8644348B1A1F23; };
+		5B9DBC0376C2B9EB13DC8BDF /* JarvisClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 712F971DD622E216455396A7; };
+		490D85EB86BBE4AC9FC3AA11 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9D9388D0CE0643EEFC4E72E; };
+		602521FEDE5528EBAE16BD1B /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = B961DBE5B59FA7B5BB3319FB; };
+		6E1C336E1E99A331AF63A063 /* AlarmsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A3516376D2B0B50D62FE60; };
+		500C63FBCD241B71FE0C1B6B /* DeviceArt.swift in Sources */ = {isa = PBXBuildFile; fileRef = C78D72FB10E765D1901E1828; };
+		0C2324B1D6DF1D8858FE6D09 /* DeviceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56CCD410FE0AF69A367A6BB0; };
+		3534FB65A9AB1B1310F0BBB7 /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 965B7D3C2499E10746369B25; };
+		68DAEDFC0C074F305684B4E5 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EDE927DB8A45F825B300688; };
+		1A111687B048C5252E94B94F /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30B274210D0AF5ECFE845636; };
+		E686C6CD689E1A57A8BFBF4E /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CAC728FA418CE767F56F8AE; };
+		B51B7166A2C01E41E3F652B0 /* TodosView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0552F4A4D492D987BEF85A98; };
+		A4AA98F89244881F3E0AEA94 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D69693798B9A27EE07FDFFCD; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		21C55A778BEDC53518BAD436 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "JarvisApp.swift"; sourceTree = "<group>"; };
+		D7FB24A6B921C1A960CBC183 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel.swift"; sourceTree = "<group>"; };
+		CB4A64A8FE8644348B1A1F23 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Discovery.swift"; sourceTree = "<group>"; };
+		712F971DD622E216455396A7 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "JarvisClient.swift"; sourceTree = "<group>"; };
+		D9D9388D0CE0643EEFC4E72E = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Keychain.swift"; sourceTree = "<group>"; };
+		B961DBE5B59FA7B5BB3319FB = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Models.swift"; sourceTree = "<group>"; };
+		D2A3516376D2B0B50D62FE60 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AlarmsView.swift"; sourceTree = "<group>"; };
+		C78D72FB10E765D1901E1828 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DeviceArt.swift"; sourceTree = "<group>"; };
+		56CCD410FE0AF69A367A6BB0 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DeviceView.swift"; sourceTree = "<group>"; };
+		965B7D3C2499E10746369B25 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PairingView.swift"; sourceTree = "<group>"; };
+		0EDE927DB8A45F825B300688 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootView.swift"; sourceTree = "<group>"; };
+		30B274210D0AF5ECFE845636 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsViews.swift"; sourceTree = "<group>"; };
+		0CAC728FA418CE767F56F8AE = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Theme.swift"; sourceTree = "<group>"; };
+		0552F4A4D492D987BEF85A98 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TodosView.swift"; sourceTree = "<group>"; };
+		D69693798B9A27EE07FDFFCD = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Assets.xcassets"; sourceTree = "<group>"; };
+		2E1B3DAF2E6367B6D1E87009 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Info.plist"; sourceTree = "<group>"; };
+		38A007151ABE87CC01A5B6E9 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Jarvis.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		019BAB185F97B56993A7087D = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		361FF3508AF23F4E0CB329EA = {isa = PBXGroup; children = (E8DD5325A0E974A0F3ED8F5B, 31793280A19CDC7880B10A8E); sourceTree = "<group>"; };
+		31793280A19CDC7880B10A8E = {isa = PBXGroup; children = (38A007151ABE87CC01A5B6E9); name = Products; sourceTree = "<group>"; };
+		E8DD5325A0E974A0F3ED8F5B = {isa = PBXGroup; children = (21C55A778BEDC53518BAD436, F429EAE38CB951C9A3CA74F6, 9683ED784AF23CBD35333E2E, D69693798B9A27EE07FDFFCD, 2E1B3DAF2E6367B6D1E87009); path = "Jarvis"; sourceTree = "<group>"; };
+		F429EAE38CB951C9A3CA74F6 = {isa = PBXGroup; children = (D7FB24A6B921C1A960CBC183, CB4A64A8FE8644348B1A1F23, 712F971DD622E216455396A7, D9D9388D0CE0643EEFC4E72E, B961DBE5B59FA7B5BB3319FB); path = "Model"; sourceTree = "<group>"; };
+		9683ED784AF23CBD35333E2E = {isa = PBXGroup; children = (D2A3516376D2B0B50D62FE60, C78D72FB10E765D1901E1828, 56CCD410FE0AF69A367A6BB0, 965B7D3C2499E10746369B25, 0EDE927DB8A45F825B300688, 30B274210D0AF5ECFE845636, 0CAC728FA418CE767F56F8AE, 0552F4A4D492D987BEF85A98); path = "Views"; sourceTree = "<group>"; };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		0E8A3AD980EC179856012B7E = {isa = PBXNativeTarget; buildConfigurationList = 6591FE01B7A4C3D3E447469F; buildPhases = (C2511B36F0F0E810A9E46328, 019BAB185F97B56993A7087D, C2112B99FC6905E49DE55430); buildRules = (); dependencies = (); name = Jarvis; productName = Jarvis; productReference = 38A007151ABE87CC01A5B6E9; productType = "com.apple.product-type.application"; };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		98F54143AB4E86B28C3AFEE0 = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = 1; LastSwiftUpdateCheck = 1640; LastUpgradeCheck = 1640; TargetAttributes = {0E8A3AD980EC179856012B7E = {CreatedOnToolsVersion = 16.4; }; }; }; buildConfigurationList = 573357129E4A5041BDD85B44; compatibilityVersion = "Xcode 14.0"; developmentRegion = cs; hasScannedForEncodings = 0; knownRegions = (cs, en, Base); mainGroup = 361FF3508AF23F4E0CB329EA; productRefGroup = 31793280A19CDC7880B10A8E; projectDirPath = ""; projectRoot = ""; targets = (0E8A3AD980EC179856012B7E); };
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C2112B99FC6905E49DE55430 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A4AA98F89244881F3E0AEA94); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		C2511B36F0F0E810A9E46328 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (03C57C7239DC510A8B8BB130, 12C65E3F8363C18626E5CF2C, 37CBA5B195ADE0E1FBB9A43F, 5B9DBC0376C2B9EB13DC8BDF, 490D85EB86BBE4AC9FC3AA11, 602521FEDE5528EBAE16BD1B, 6E1C336E1E99A331AF63A063, 500C63FBCD241B71FE0C1B6B, 0C2324B1D6DF1D8858FE6D09, 3534FB65A9AB1B1310F0BBB7, 68DAEDFC0C074F305684B4E5, 1A111687B048C5252E94B94F, E686C6CD689E1A57A8BFBF4E, B51B7166A2C01E41E3F652B0); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		70DCC1EB255A5F3C8D9ED349 = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; DEBUG_INFORMATION_FORMAT = dwarf; ENABLE_STRICT_OBJC_MSGSEND = YES; ENABLE_TESTABILITY = YES; GCC_NO_COMMON_BLOCKS = YES; GCC_OPTIMIZATION_LEVEL = 0; IPHONEOS_DEPLOYMENT_TARGET = 17.0; ONLY_ACTIVE_ARCH = YES; SDKROOT = iphoneos; SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; SWIFT_VERSION = 5.0; }; name = Debug; };
+		C3DCEEC1E0EB17A5583B8E94 = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; ENABLE_STRICT_OBJC_MSGSEND = YES; GCC_NO_COMMON_BLOCKS = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_VERSION = 5.0; VALIDATE_PRODUCT = YES; }; name = Release; };
+		DB189EBE9D4E38495C3C7EF5 = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEVELOPMENT_TEAM = LRRBKK8652; INFOPLIST_FILE = Jarvis/Info.plist; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks"; MARKETING_VERSION = 1.0; PRODUCT_BUNDLE_IDENTIFIER = com.jenda.jarvis; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_EMIT_LOC_STRINGS = YES; TARGETED_DEVICE_FAMILY = 1; }; name = Debug; };
+		032222C0BAA33BC7119DFAF1 = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEVELOPMENT_TEAM = LRRBKK8652; INFOPLIST_FILE = Jarvis/Info.plist; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks"; MARKETING_VERSION = 1.0; PRODUCT_BUNDLE_IDENTIFIER = com.jenda.jarvis; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_EMIT_LOC_STRINGS = YES; TARGETED_DEVICE_FAMILY = 1; }; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		573357129E4A5041BDD85B44 = {isa = XCConfigurationList; buildConfigurations = (70DCC1EB255A5F3C8D9ED349, C3DCEEC1E0EB17A5583B8E94); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		6591FE01B7A4C3D3E447469F = {isa = XCConfigurationList; buildConfigurations = (DB189EBE9D4E38495C3C7EF5, 032222C0BAA33BC7119DFAF1); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+	};
+	rootObject = 98F54143AB4E86B28C3AFEE0;
+}

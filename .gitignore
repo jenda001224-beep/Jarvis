@@ -5,3 +5,6 @@ varianta-home-assistant/esphome/secrets.yaml
 __pycache__/
 nastaveni.json
 nahled-*.png
+app/Jarvis.xcodeproj/xcuserdata/
+app/Jarvis.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcuserstate

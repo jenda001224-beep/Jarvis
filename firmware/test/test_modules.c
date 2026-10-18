@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "bambu.h"
 #include "cJSON.h"
@@ -10,6 +11,8 @@
 #include "proto.h"
 #include "reminders.h"
 #include "tavily.h"
+#include "todos.h"
+#include "alarms.h"
 
 static const char FULL_REPORT[] =
     "{\"print\":{\"bed_target_temper\":60.0,\"bed_temper\":59.6,\"command\":\"push_status\",\"fail_reason\":\"0\","
@@ -295,6 +298,85 @@ static void test_search(void)
     assert(tavily_summarize("not json", 8) == NULL);
 }
 
+static void test_todos(void)
+{
+    uint32_t milk = todos_add("  koupit mléko ", 100);
+    uint32_t bills = todos_add("zaplatit složenky", 50);
+    assert(milk && bills && milk != bills);
+    assert(todos_add("   ", 10) == 0);
+    todo_t list[TODOS_MAX];
+    assert(todos_list(list, TODOS_MAX) == 2);
+    assert(list[0].id == bills && strcmp(list[1].text, "koupit mléko") == 0);
+    assert(todos_find("Koupit Mléko") == milk);
+    assert(todos_set_done(bills, true) && todos_open_count() == 1);
+    assert(todos_list(list, TODOS_MAX) == 2 && list[0].id == milk && list[1].done);
+    assert(todos_rename(milk, "koupit ovesné mléko") && todos_find("koupit ovesné mléko") == milk);
+    char blob[sizeof(list) + 64];
+    size_t length = todos_save(blob, sizeof(blob));
+    assert(length == todos_blob_size());
+    assert(todos_clear_done() == 1 && todos_open_count() == 1);
+    todos_load(blob, length);
+    assert(todos_list(list, TODOS_MAX) == 2);
+    assert(todos_remove(milk) && !todos_remove(milk));
+    char longest[200];
+    memset(longest, 0, sizeof(longest));
+    for (int i = 0; i < 60; i++) {
+        strcat(longest, "č");
+    }
+    uint32_t cut = todos_add(longest, 1);
+    int count = todos_list(list, TODOS_MAX);
+    for (int i = 0; i < count; i++) {
+        if (list[i].id == cut) {
+            assert(strlen(list[i].text) < TODO_TEXT && strlen(list[i].text) % 2 == 0);
+        }
+    }
+    while (todos_add("úkol", 2)) {
+    }
+    assert(todos_list(list, TODOS_MAX) == TODOS_MAX);
+}
+
+static time_t prague(int year, int month, int day, int hour, int minute)
+{
+    struct tm moment = {.tm_year = year - 1900, .tm_mon = month - 1, .tm_mday = day, .tm_hour = hour,
+                        .tm_min = minute, .tm_isdst = -1};
+    return mktime(&moment);
+}
+
+static void test_alarms(void)
+{
+    setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1);
+    tzset();
+    uint8_t weekdays = 0x1F;
+    uint32_t work = alarms_add(6, 30, weekdays, "Do práce");
+    uint32_t once = alarms_add(9, 0, 0, "Jednou");
+    assert(work && once && alarms_add(24, 0, 0, "x") == 0);
+    alarm_t alarm;
+    time_t when = 0;
+    time_t friday_evening = prague(2026, 10, 23, 20, 0);
+    assert(alarms_next(friday_evening, &alarm, &when) && alarm.id == once);
+    assert(when == prague(2026, 10, 24, 9, 0));
+    assert(alarms_remove(once));
+    assert(alarms_next(friday_evening, &alarm, &when) && alarm.id == work);
+    assert(when == prague(2026, 10, 26, 6, 30));
+    time_t monday = prague(2026, 10, 26, 6, 30) + 20;
+    assert(alarms_due(monday, &alarm) && alarm.id == work);
+    assert(!alarms_due(monday + 30, &alarm));
+    assert(!alarms_due(prague(2026, 10, 25, 6, 30), &alarm));
+    uint32_t single = alarms_add(7, 15, 0, "");
+    assert(alarms_due(prague(2026, 10, 27, 7, 15), &alarm) && alarm.id == single);
+    assert(alarms_get(single, &alarm) && !alarm.enabled);
+    assert(alarms_update(single, 7, 20, 0, "Znovu", true));
+    assert(alarms_get(single, &alarm) && alarm.enabled && alarm.fired_day == -1);
+    alarm_t list[ALARMS_MAX];
+    assert(alarms_list(list, ALARMS_MAX) == 2 && list[0].id == work && list[1].hour == 7);
+    char blob[sizeof(list) + 64];
+    size_t length = alarms_save(blob, sizeof(blob));
+    assert(alarms_remove(work) && alarms_list(list, ALARMS_MAX) == 1);
+    alarms_load(blob, length);
+    assert(alarms_list(list, ALARMS_MAX) == 2);
+    assert(alarms_day_bit(1) == 0x01 && alarms_day_bit(0) == 0x40);
+}
+
 int main(void)
 {
     test_printer();
@@ -303,6 +385,8 @@ int main(void)
     test_weather();
     test_text_message();
     test_search();
-    puts("modules: printer, reminders, travel, weather, text prompt and search pass");
+    test_todos();
+    test_alarms();
+    puts("modules: printer, reminders, travel, weather, text prompt, search, to-dos and alarms pass");
     return 0;
 }

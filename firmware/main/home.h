@@ -43,6 +43,9 @@ typedef struct {
     int dark;
     int orientation;
     int sensitivity;
+    int night;
+    int night_from;
+    int night_to;
 } home_prefs_t;
 
 typedef struct {
@@ -55,6 +58,8 @@ typedef struct {
     char printer[40];
     char event[72];
     int reminders;
+    int todos;
+    char alarm[24];
     home_hub_t hub;
     int device_count;
     home_device_t devices[HOME_DEVICES];

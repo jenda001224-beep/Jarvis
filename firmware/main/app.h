@@ -22,6 +22,8 @@ typedef enum {
     APP_EVENT_TALK,
     APP_EVENT_LAMP,
     APP_EVENT_PREFS,
+    APP_EVENT_API,
+    APP_EVENT_LISTS_CHANGED,
 } app_event_t;
 
 void app_post(app_event_t event);

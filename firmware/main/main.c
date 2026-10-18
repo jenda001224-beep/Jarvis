@@ -4,6 +4,7 @@
 #include <string.h>
 #include <time.h>
 
+#include "api.h"
 #include "app.h"
 #include "audio.h"
 #include "bsp/esp-bsp.h"
@@ -16,6 +17,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_random.h"
+#include "esp_system.h"
 #if CONFIG_HEAP_TRACING_STANDALONE
 #include "esp_heap_trace.h"
 #endif
@@ -25,6 +27,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "ikea.h"
+#include "lists.h"
 #include "live.h"
 #include "memory.h"
 #include "meteo.h"
@@ -60,6 +63,15 @@
 #define NOISE_SMOOTHING 0.03f
 #define SPEECH_ABOVE_NOISE 15
 #define LOOP_WAIT_MS 100
+#define NVS_APP_TOKENS "app_tokens"
+#define NVS_REMINDERS "reminders"
+#define PAIRING_MS 120000
+#define PAIRING_ATTEMPTS 5
+#define ALARM_GAP_MS 2500
+#define ALARM_RING_LIMIT_MS (10 * 60 * 1000)
+#define ALARM_MIN_VOLUME 60
+#define RESTART_DELAY_MS 1500
+#define SAY_LIMIT 160
 #define ACK_LOOP_WAIT_MS 20
 #define UPLINK_SAMPLES 1024
 #define REPORT_INTERVAL_MS 3000
@@ -114,7 +126,16 @@ static const char PERSONA[] =
     "Tenhle nástroj nepoužívej pro lampy, žárovky ani LED pásky. "
     "Když pán chce něco připomenout nebo dát vědět v určitý čas, zavolej set_reminder a do text napiš celou větou, "
     "co mu máš říct. Když ti systém oznámí, že nastal čas připomínky, promluv na pána sám: oslov ho, řekni mu to "
-    "a zeptej se, jestli tě slyší.";
+    "a zeptej se, jestli tě slyší. Vedeš pánovi seznam úkolů: zapisuješ add_todo, čteš list_todos, odškrtáváš "
+    "complete_todo a mažeš remove_todo; seznam vidí i v telefonu. Budík (set_alarm) zvoní každý den nebo ve "
+    "vybrané dny, připomínka jen jednou promluví; když pán řekne „vzbuď mě“ nebo „budík“, nastav budík.";
+
+static const char ALARM_GREETING[] =
+    "Právě zazvonil budík%s a pán ho vypnul. Pozdrav ho podle denní doby, řekni kolik je hodin a ve třech krátkých "
+    "větách, co ho dnes čeká: počasí, události z kalendáře a nesplněné úkoly, pokud na ně máš nástroje.";
+
+static const char PHONE_MESSAGE[] =
+    "Pán ti z telefonu poslal vzkaz pro lidi v pokoji. Přečti ho nahlas přesně tak, jak je, nic nepřidávej: „%s“";
 
 static const char SEARCHING[] = "Zprávy a jiné čerstvé informace si vyhledej na internetu.";
 
@@ -168,6 +189,26 @@ static const char REMINDER_FUNCTIONS[] =
     "{\"name\":\"list_reminders\",\"description\":\"Vrátí nastavené připomínky.\","
     "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{}}},"
     "{\"name\":\"cancel_reminder\",\"description\":\"Zruší připomínku podle id z list_reminders.\","
+    "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{\"id\":{\"type\":\"INTEGER\"}},\"required\":[\"id\"]}}";
+
+static const char LIST_FUNCTIONS[] =
+    "{\"name\":\"add_todo\",\"description\":\"Zapíše úkol na pánův seznam úkolů.\","
+    "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{\"text\":{\"type\":\"STRING\"}},\"required\":[\"text\"]}},"
+    "{\"name\":\"list_todos\",\"description\":\"Vrátí seznam úkolů i se splněnými.\","
+    "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{}}},"
+    "{\"name\":\"complete_todo\",\"description\":\"Odškrtne úkol jako splněný podle id nebo přesného textu.\","
+    "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{\"id\":{\"type\":\"INTEGER\"},\"text\":{\"type\":\"STRING\"}}}},"
+    "{\"name\":\"remove_todo\",\"description\":\"Smaže úkol ze seznamu podle id nebo přesného textu.\","
+    "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{\"id\":{\"type\":\"INTEGER\"},\"text\":{\"type\":\"STRING\"}}}},"
+    "{\"name\":\"set_alarm\",\"description\":\"Nastaví budík, který v daný čas zazvoní.\","
+    "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{"
+    "\"time\":{\"type\":\"STRING\",\"description\":\"Čas ve tvaru HH:MM\"},"
+    "\"days\":{\"type\":\"ARRAY\",\"items\":{\"type\":\"INTEGER\"},"
+    "\"description\":\"Dny opakování 1 pondělí až 7 neděle; prázdné znamená jen jednou\"},"
+    "\"label\":{\"type\":\"STRING\",\"description\":\"Krátký popis, třeba Do práce\"}},\"required\":[\"time\"]}},"
+    "{\"name\":\"list_alarms\",\"description\":\"Vrátí nastavené budíky.\","
+    "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{}}},"
+    "{\"name\":\"cancel_alarm\",\"description\":\"Smaže budík podle id z list_alarms.\","
     "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{\"id\":{\"type\":\"INTEGER\"}},\"required\":[\"id\"]}}";
 
 static const char SEARCH_FUNCTION[] =
@@ -224,6 +265,9 @@ static volatile bool tool_busy;
 static volatile int heard_letters;
 static bool search_allowed = true;
 static uint32_t key_mark;
+static uint32_t reminders_revision;
+
+static void next_alarm_text(char *out, size_t capacity);
 
 extern const uint8_t ack_ano_start[] asm("_binary_ack_ano_pcm_start");
 extern const uint8_t ack_ano_end[] asm("_binary_ack_ano_pcm_end");
@@ -484,6 +528,20 @@ static char *run_tool(const tool_call_t *call)
         result = weather_tool(call->args);
     } else if (strcmp(call->name, "search_web") == 0) {
         result = search_tool(call->args);
+    } else if (strcmp(call->name, "add_todo") == 0) {
+        result = lists_tool_add_todo(call->args);
+    } else if (strcmp(call->name, "list_todos") == 0) {
+        result = lists_tool_list_todos();
+    } else if (strcmp(call->name, "complete_todo") == 0) {
+        result = lists_tool_complete_todo(call->args);
+    } else if (strcmp(call->name, "remove_todo") == 0) {
+        result = lists_tool_remove_todo(call->args);
+    } else if (strcmp(call->name, "set_alarm") == 0) {
+        result = lists_tool_set_alarm(call->args);
+    } else if (strcmp(call->name, "list_alarms") == 0) {
+        result = lists_tool_list_alarms();
+    } else if (strcmp(call->name, "cancel_alarm") == 0) {
+        result = lists_tool_cancel_alarm(call->args);
     } else if (strcmp(call->name, "printer_status") == 0) {
         result = printer_tool_status();
     } else if (strcmp(call->name, "get_calendar") == 0) {
@@ -586,7 +644,7 @@ static char *build_instruction(bool with_home, const reminder_t *unheard, int un
 static char *build_functions(bool with_home)
 {
     text_t text = {0};
-    append(&text, "[%s,%s,%s", DISPLAY_FUNCTION, REMINDER_FUNCTIONS, WEATHER_FUNCTION);
+    append(&text, "[%s,%s,%s,%s", DISPLAY_FUNCTION, REMINDER_FUNCTIONS, LIST_FUNCTIONS, WEATHER_FUNCTION);
     if (!native_search() && search_configured()) {
         append(&text, ",%s", SEARCH_FUNCTION);
     }
@@ -621,8 +679,9 @@ static void save_reminders(void)
     size_t length = reminders_save(blob, sizeof(blob));
     xSemaphoreGive(reminder_lock);
     if (length) {
-        settings_write_reminders(blob, length);
+        settings_write_blob(NVS_REMINDERS, blob, length);
     }
+    reminders_revision++;
     show_reminders();
 }
 
@@ -876,6 +935,13 @@ static int stored_pair(const char *name, int base, int low, int high)
     return value < low || value > high ? base : value;
 }
 
+static int stored_minutes(const char *name, int fallback)
+{
+    uint32_t stored = settings_read_number(name);
+    int value = stored ? (int) stored - 1 : fallback;
+    return value < 0 || value >= 24 * 60 ? fallback : value;
+}
+
 static void load_prefs(void)
 {
     const settings_t *settings = settings_get();
@@ -885,6 +951,9 @@ static void load_prefs(void)
     prefs.sleep = stored_value("sleep", 1, 0, HOME_SLEEP_CHOICES - 1);
     prefs.dark = stored_value("dark", 0, 0, 1);
     prefs.orientation = stored_value("orientation", 0, 0, 3);
+    prefs.night = stored_value("night", 1, 0, 1);
+    prefs.night_from = stored_minutes("night_from", 23 * 60);
+    prefs.night_to = stored_minutes("night_to", 7 * 60);
 }
 
 static void apply_prefs(home_prefs_t chosen)
@@ -910,10 +979,22 @@ static void apply_prefs(home_prefs_t chosen)
     if (chosen.orientation != prefs.orientation) {
         settings_write_number("orientation", (uint32_t) chosen.orientation + 1);
     }
+    if (chosen.night != prefs.night) {
+        settings_write_number("night", (uint32_t) chosen.night + 1);
+    }
+    if (chosen.night_from != prefs.night_from) {
+        settings_write_number("night_from", (uint32_t) chosen.night_from + 1);
+    }
+    if (chosen.night_to != prefs.night_to) {
+        settings_write_number("night_to", (uint32_t) chosen.night_to + 1);
+    }
     prefs = chosen;
     ui_set_prefs(&prefs);
-    ESP_LOGI(TAG, "preferences: volume %d, brightness %d, sleep %d, dark %d, orientation %d, sensitivity %d",
-             prefs.volume, prefs.brightness, prefs.sleep, prefs.dark, prefs.orientation, prefs.sensitivity);
+    ESP_LOGI(TAG,
+             "preferences: volume %d, brightness %d, sleep %d, dark %d, orientation %d, sensitivity %d, night %d "
+             "%d-%d",
+             prefs.volume, prefs.brightness, prefs.sleep, prefs.dark, prefs.orientation, prefs.sensitivity, prefs.night,
+             prefs.night_from, prefs.night_to);
 }
 
 static void change_prefs(void)
@@ -989,6 +1070,8 @@ static void update_home(int64_t now)
     xSemaphoreTake(reminder_lock, portMAX_DELAY);
     data.reminders = reminders_pending(NULL, 0);
     xSemaphoreGive(reminder_lock);
+    data.todos = lists_open_todos();
+    next_alarm_text(data.alarm, sizeof(data.alarm));
     switch (ikea_state()) {
     case IKEA_UNPAIRED:
         data.hub = HOME_HUB_OFFER;
@@ -1101,6 +1184,424 @@ static void on_console(void)
     ESP_LOGI(TAG, "console: %s, state %d, muted %d, dry %d", line, (int) state, (int) audio_muted(), (int) dry);
 }
 
+extern const uint8_t alarm_chime_start[] asm("_binary_alarm_pcm_start");
+extern const uint8_t alarm_chime_end[] asm("_binary_alarm_pcm_end");
+
+static char tokens[API_TOKENS][API_TOKEN_LENGTH + 1];
+static char pairing_code[8];
+static int64_t pairing_until;
+static int pairing_attempts;
+static int64_t restart_at;
+static bool ringing;
+static bool ring_waiting;
+static int64_t ring_since;
+static int64_t ring_last;
+static int ring_restore_volume = -1;
+static alarm_t ring_alarm;
+
+static void load_tokens(void)
+{
+    memset(tokens, 0, sizeof(tokens));
+    settings_read_blob(NVS_APP_TOKENS, tokens, sizeof(tokens));
+    for (int i = 0; i < API_TOKENS; i++) {
+        tokens[i][API_TOKEN_LENGTH] = 0;
+        if (strlen(tokens[i]) != API_TOKEN_LENGTH) {
+            memset(tokens[i], 0, sizeof(tokens[i]));
+        }
+    }
+}
+
+static void save_tokens(void)
+{
+    settings_write_blob(NVS_APP_TOKENS, tokens, sizeof(tokens));
+    api_set_tokens(tokens);
+}
+
+static void stop_pairing(void)
+{
+    if (pairing_code[0]) {
+        pairing_code[0] = 0;
+        ui_show_code(NULL);
+    }
+}
+
+static void start_ringing(const alarm_t *alarm)
+{
+    char clock_text[8];
+    snprintf(clock_text, sizeof(clock_text), "%d:%02d", alarm->hour, alarm->minute);
+    ESP_LOGI(TAG, "alarm %u rings at %s", (unsigned) alarm->id, clock_text);
+    stop_pairing();
+    ringing = true;
+    ring_waiting = false;
+    ring_alarm = *alarm;
+    ring_since = now_ms();
+    ring_last = 0;
+    if (prefs.volume < ALARM_MIN_VOLUME) {
+        ring_restore_volume = prefs.volume;
+        audio_set_volume(ALARM_MIN_VOLUME);
+    }
+    ui_show_alarm(clock_text, alarm->label);
+}
+
+static void stop_ringing(bool greet)
+{
+    if (!ringing) {
+        return;
+    }
+    ringing = false;
+    audio_flush();
+    if (ring_restore_volume >= 0) {
+        audio_set_volume(ring_restore_volume);
+        ring_restore_volume = -1;
+    }
+    ui_show_alarm(NULL, NULL);
+    ESP_LOGI(TAG, "alarm stopped%s", greet ? ", greeting" : "");
+    if (greet && state == STATE_IDLE) {
+        char label[ALARM_LABEL + 16] = "";
+        if (ring_alarm.label[0]) {
+            snprintf(label, sizeof(label), " „%s“", ring_alarm.label);
+        }
+        snprintf(opening, sizeof(opening), ALARM_GREETING, label);
+        start_session(SESSION_TEXT);
+    }
+}
+
+static void watch_alarms(int64_t now)
+{
+    if (net_time_valid() && !ringing && !ring_waiting) {
+        alarm_t due;
+        if (lists_due_alarm(time(NULL), &due)) {
+            ring_alarm = due;
+            ring_waiting = true;
+        }
+    }
+    if (ring_waiting && state == STATE_IDLE) {
+        start_ringing(&ring_alarm);
+    }
+    if (!ringing) {
+        return;
+    }
+    if (now - ring_since > ALARM_RING_LIMIT_MS) {
+        stop_ringing(false);
+        return;
+    }
+    if (!audio_muted() && !audio_playing() && now - ring_last >= ALARM_GAP_MS) {
+        audio_play((const int16_t *) alarm_chime_start, (size_t) (alarm_chime_end - alarm_chime_start) / sizeof(int16_t));
+        audio_finish();
+        ring_last = now;
+    }
+}
+
+static void next_alarm_text(char *out, size_t capacity)
+{
+    static const char *const SHORT_DAYS[] = {"ne", "po", "út", "st", "čt", "pá", "so"};
+    out[0] = 0;
+    if (!net_time_valid()) {
+        return;
+    }
+    time_t now = time(NULL);
+    time_t when = 0;
+    alarm_t alarm;
+    if (!lists_next_alarm(now, &alarm, &when)) {
+        return;
+    }
+    struct tm local;
+    localtime_r(&when, &local);
+    if (when - now < 24 * 60 * 60) {
+        snprintf(out, capacity, "%d:%02d", local.tm_hour, local.tm_min);
+    } else {
+        snprintf(out, capacity, "%s %d:%02d", SHORT_DAYS[local.tm_wday], local.tm_hour, local.tm_min);
+    }
+}
+
+static const char *state_name(void)
+{
+    static const char *const NAMES[] = {"offline", "idle", "connecting", "listening", "speaking", "error"};
+    return ringing ? "ringing" : NAMES[state];
+}
+
+static char *json_reply(cJSON *root)
+{
+    char *text = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    return text;
+}
+
+static void api_error(api_call_t *call, int status, const char *message)
+{
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "error", message);
+    call->status = status;
+    call->reply = json_reply(root);
+}
+
+static cJSON *prefs_json(void)
+{
+    cJSON *item = cJSON_CreateObject();
+    cJSON_AddNumberToObject(item, "volume", prefs.volume);
+    cJSON_AddNumberToObject(item, "brightness", prefs.brightness);
+    cJSON_AddNumberToObject(item, "sleep", prefs.sleep);
+    cJSON_AddNumberToObject(item, "dark", prefs.dark);
+    cJSON_AddNumberToObject(item, "orientation", prefs.orientation);
+    cJSON_AddNumberToObject(item, "sensitivity", prefs.sensitivity);
+    cJSON_AddBoolToObject(item, "night", prefs.night);
+    cJSON_AddNumberToObject(item, "night_from", prefs.night_from);
+    cJSON_AddNumberToObject(item, "night_to", prefs.night_to);
+    return item;
+}
+
+static cJSON *state_json(void)
+{
+    const settings_t *settings = settings_get();
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "name", "J-WALL Display");
+    cJSON_AddStringToObject(root, "model", "Waveshare ESP32-S3-Touch-LCD-4B");
+    cJSON_AddStringToObject(root, "version", esp_app_get_description()->version);
+    cJSON_AddStringToObject(root, "state", state_name());
+    cJSON_AddNumberToObject(root, "uptime", (double) (esp_timer_get_time() / 1000000));
+    cJSON_AddBoolToObject(root, "muted", audio_muted());
+    cJSON_AddBoolToObject(root, "lamp", ui_lamp());
+    cJSON_AddNumberToObject(root, "revision", lists_revision() + reminders_revision);
+    cJSON *network = cJSON_AddObjectToObject(root, "network");
+    char address[20];
+    net_address(address, sizeof(address));
+    cJSON_AddStringToObject(network, "ssid", settings->ssid);
+    cJSON_AddNumberToObject(network, "rssi", net_signal());
+    cJSON_AddStringToObject(network, "ip", address);
+    cJSON *memory = cJSON_AddObjectToObject(root, "memory");
+    cJSON_AddNumberToObject(memory, "internal", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    cJSON_AddNumberToObject(memory, "external", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    cJSON_AddItemToObject(root, "prefs", prefs_json());
+    cJSON *stored = cJSON_AddObjectToObject(root, "settings");
+    cJSON_AddStringToObject(stored, "voice", settings->voice);
+    cJSON_AddStringToObject(stored, "place", settings->place);
+    cJSON_AddStringToObject(stored, "home", settings->home);
+    cJSON_AddStringToObject(stored, "transport", settings->transport);
+    cJSON_AddBoolToObject(stored, "search", settings->search);
+    cJSON_AddBoolToObject(stored, "search_key", settings->search_key[0] != 0);
+    cJSON_AddBoolToObject(stored, "printer", settings->printer_code[0] != 0);
+    int calendars = 0;
+    for (int i = 0; i < SETTINGS_CALENDARS; i++) {
+        calendars += settings->calendars[i][0] != 0;
+    }
+    cJSON_AddNumberToObject(stored, "calendars", calendars);
+    cJSON *hub = cJSON_AddObjectToObject(root, "hub");
+    static const char *const HUB_STATES[] = {
+        [IKEA_SEARCHING] = "searching", [IKEA_NOT_FOUND] = "missing", [IKEA_UNPAIRED] = "unpaired",
+        [IKEA_PAIRING] = "pairing", [IKEA_READY] = "ready",
+    };
+    cJSON_AddStringToObject(hub, "state", HUB_STATES[ikea_state()]);
+    cJSON_AddNumberToObject(hub, "devices", ikea_device_count());
+    cJSON_AddNumberToObject(root, "todos_open", lists_open_todos());
+    time_t when = 0;
+    alarm_t alarm;
+    if (net_time_valid() && lists_next_alarm(time(NULL), &alarm, &when)) {
+        cJSON *next = cJSON_AddObjectToObject(root, "next_alarm");
+        cJSON_AddNumberToObject(next, "id", alarm.id);
+        cJSON_AddNumberToObject(next, "at", (double) when);
+        cJSON_AddStringToObject(next, "label", alarm.label);
+    }
+    return root;
+}
+
+static bool read_int(const cJSON *body, const char *key, int low, int high, int *out)
+{
+    const cJSON *item = cJSON_GetObjectItemCaseSensitive(body, key);
+    if (!item) {
+        return true;
+    }
+    if (cJSON_IsBool(item)) {
+        *out = cJSON_IsTrue(item);
+        return low == 0 && high >= 1;
+    }
+    if (!cJSON_IsNumber(item) || item->valueint < low || item->valueint > high) {
+        return false;
+    }
+    *out = item->valueint;
+    return true;
+}
+
+static void api_prefs(api_call_t *call, const cJSON *body)
+{
+    home_prefs_t chosen = prefs;
+    bool valid = read_int(body, "volume", 0, 100, &chosen.volume) &&
+                 read_int(body, "brightness", 10, 100, &chosen.brightness) &&
+                 read_int(body, "sleep", 0, HOME_SLEEP_CHOICES - 1, &chosen.sleep) &&
+                 read_int(body, "dark", 0, 1, &chosen.dark) && read_int(body, "orientation", 0, 3, &chosen.orientation) &&
+                 read_int(body, "sensitivity", 0, 2, &chosen.sensitivity) && read_int(body, "night", 0, 1, &chosen.night) &&
+                 read_int(body, "night_from", 0, 24 * 60 - 1, &chosen.night_from) &&
+                 read_int(body, "night_to", 0, 24 * 60 - 1, &chosen.night_to);
+    if (!valid) {
+        api_error(call, 400, "bad preference");
+        return;
+    }
+    apply_prefs(chosen);
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddItemToObject(root, "prefs", prefs_json());
+    call->reply = json_reply(root);
+}
+
+static void api_reminders(api_call_t *call, uint32_t id)
+{
+    if (call->method == API_DELETE && id) {
+        xSemaphoreTake(reminder_lock, portMAX_DELAY);
+        bool cancelled = reminders_cancel(id);
+        xSemaphoreGive(reminder_lock);
+        if (!cancelled) {
+            api_error(call, 404, "no such reminder");
+            return;
+        }
+        save_reminders();
+    } else if (call->method != API_GET || id) {
+        api_error(call, 404, "not found");
+        return;
+    }
+    static reminder_t pending[REMINDERS_MAX];
+    xSemaphoreTake(reminder_lock, portMAX_DELAY);
+    int count = reminders_pending(pending, REMINDERS_MAX);
+    xSemaphoreGive(reminder_lock);
+    cJSON *root = cJSON_CreateObject();
+    cJSON *list = cJSON_AddArrayToObject(root, "reminders");
+    for (int i = 0; i < count; i++) {
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddNumberToObject(item, "id", pending[i].id);
+        cJSON_AddNumberToObject(item, "due", (double) pending[i].due);
+        cJSON_AddStringToObject(item, "text", pending[i].text);
+        cJSON_AddItemToArray(list, item);
+    }
+    call->reply = json_reply(root);
+}
+
+static void api_pair(api_call_t *call, const cJSON *body)
+{
+    int64_t now = now_ms();
+    if (strcmp(call->path, "/api/pair/start") == 0) {
+        if (ringing || state != STATE_IDLE) {
+            api_error(call, 409, "busy");
+            return;
+        }
+        snprintf(pairing_code, sizeof(pairing_code), "%06u", (unsigned) (esp_random() % 1000000));
+        pairing_until = now + PAIRING_MS;
+        pairing_attempts = 0;
+        ui_show_code(pairing_code);
+        ESP_LOGI(TAG, "pairing code %s is on the display", pairing_code);
+        cJSON *root = cJSON_CreateObject();
+        cJSON_AddNumberToObject(root, "seconds", PAIRING_MS / 1000);
+        call->reply = json_reply(root);
+        return;
+    }
+    const cJSON *code = cJSON_GetObjectItemCaseSensitive(body, "code");
+    if (!pairing_code[0]) {
+        api_error(call, 409, "no pairing in progress");
+        return;
+    }
+    if (++pairing_attempts > PAIRING_ATTEMPTS) {
+        stop_pairing();
+        api_error(call, 429, "too many attempts");
+        return;
+    }
+    if (!cJSON_IsString(code) || strcmp(code->valuestring, pairing_code) != 0) {
+        api_error(call, 401, "wrong code");
+        return;
+    }
+    int slot = 0;
+    while (slot < API_TOKENS && tokens[slot][0]) {
+        slot++;
+    }
+    if (slot == API_TOKENS) {
+        memmove(tokens[0], tokens[1], sizeof(tokens) - sizeof(tokens[0]));
+        slot = API_TOKENS - 1;
+    }
+    static const char HEX[] = "0123456789abcdef";
+    for (int i = 0; i < API_TOKEN_LENGTH; i++) {
+        tokens[slot][i] = HEX[esp_random() & 0xF];
+    }
+    tokens[slot][API_TOKEN_LENGTH] = 0;
+    save_tokens();
+    stop_pairing();
+    ESP_LOGI(TAG, "phone paired into slot %d", slot);
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "token", tokens[slot]);
+    cJSON_AddItemToObject(root, "state", state_json());
+    call->reply = json_reply(root);
+}
+
+static void api_forget(api_call_t *call)
+{
+    for (int i = 0; i < API_TOKENS; i++) {
+        if (tokens[i][0] && strcmp(tokens[i], call->token) == 0) {
+            memset(tokens[i], 0, sizeof(tokens[i]));
+        }
+    }
+    save_tokens();
+    call->reply = json_reply(cJSON_CreateObject());
+}
+
+static void handle_api(api_call_t *call)
+{
+    const char *path = call->path;
+    cJSON *body = call->body ? cJSON_Parse(call->body) : NULL;
+    if (call->body && !body) {
+        api_error(call, 400, "invalid JSON");
+        return;
+    }
+    if (strcmp(path, "/api/hello") == 0) {
+        cJSON *root = cJSON_CreateObject();
+        cJSON_AddStringToObject(root, "name", "J-WALL Display");
+        cJSON_AddStringToObject(root, "model", "Waveshare ESP32-S3-Touch-LCD-4B");
+        cJSON_AddStringToObject(root, "version", esp_app_get_description()->version);
+        cJSON_AddBoolToObject(root, "paired", call->authorized);
+        call->reply = json_reply(root);
+    } else if (strncmp(path, "/api/pair", 9) == 0 && call->method == API_POST) {
+        api_pair(call, body);
+    } else if (!call->authorized) {
+        api_error(call, 401, "pair first");
+    } else if (lists_handle(call)) {
+    } else if (strcmp(path, "/api/state") == 0) {
+        call->reply = json_reply(state_json());
+    } else if (strcmp(path, "/api/prefs") == 0 && call->method == API_PUT) {
+        api_prefs(call, body);
+    } else if (strcmp(path, "/api/settings") == 0 && call->method == API_PUT) {
+        char error[48];
+        if (call->body && settings_store(call->body, error, sizeof(error))) {
+            restart_at = now_ms() + RESTART_DELAY_MS;
+            cJSON *root = cJSON_CreateObject();
+            cJSON_AddBoolToObject(root, "restart", true);
+            call->reply = json_reply(root);
+        } else {
+            api_error(call, 400, call->body ? error : "settings missing");
+        }
+    } else if (strncmp(path, "/api/reminders", 14) == 0) {
+        api_reminders(call, path[14] == '/' ? (uint32_t) strtoul(path + 15, NULL, 10) : 0);
+    } else if (strcmp(path, "/api/lamp") == 0 && call->method == API_POST) {
+        const cJSON *on = cJSON_GetObjectItemCaseSensitive(body, "on");
+        ui_set_lamp(cJSON_IsBool(on) ? cJSON_IsTrue(on) : !ui_lamp());
+        call->reply = json_reply(state_json());
+    } else if (strcmp(path, "/api/say") == 0 && call->method == API_POST) {
+        const cJSON *text = cJSON_GetObjectItemCaseSensitive(body, "text");
+        if (!cJSON_IsString(text) || !text->valuestring[0] || strlen(text->valuestring) > SAY_LIMIT) {
+            api_error(call, 400, "text missing or too long");
+        } else if (state != STATE_IDLE || ringing) {
+            api_error(call, 409, "busy");
+        } else {
+            snprintf(opening, sizeof(opening), PHONE_MESSAGE, text->valuestring);
+            start_session(SESSION_TEXT);
+            call->reply = json_reply(cJSON_CreateObject());
+        }
+    } else if (strcmp(path, "/api/alarm/stop") == 0 && call->method == API_POST) {
+        stop_ringing(false);
+        call->reply = json_reply(state_json());
+    } else if (strcmp(path, "/api/restart") == 0 && call->method == API_POST) {
+        restart_at = now_ms() + RESTART_DELAY_MS;
+        call->reply = json_reply(cJSON_CreateObject());
+    } else if (strcmp(path, "/api/forget") == 0 && call->method == API_POST) {
+        api_forget(call);
+    } else {
+        api_error(call, 404, "not found");
+    }
+    cJSON_Delete(body);
+}
+
 static void handle(app_event_t event)
 {
     bool in_session = state == STATE_CONNECTING || state == STATE_LISTENING || state == STATE_SPEAKING;
@@ -1113,7 +1614,11 @@ static void handle(app_event_t event)
         }
         break;
     case APP_EVENT_WAKE:
-        if (dry) {
+        if (ringing) {
+            wake_set_capture(false);
+            wake_clear_capture();
+            stop_ringing(true);
+        } else if (dry) {
             ESP_LOGI(TAG, "wake word ignored");
             wake_set_capture(false);
             wake_clear_capture();
@@ -1127,7 +1632,11 @@ static void handle(app_event_t event)
         }
         break;
     case APP_EVENT_TOUCH:
-        if (ui_lamp()) {
+        if (ringing) {
+            stop_ringing(true);
+        } else if (pairing_code[0]) {
+            stop_pairing();
+        } else if (ui_lamp()) {
             ui_set_lamp(false);
         } else if (state == STATE_IDLE) {
             start_session(SESSION_TOUCH);
@@ -1212,6 +1721,12 @@ static void handle(app_event_t event)
         break;
     case APP_EVENT_REMINDERS_CHANGED:
         save_reminders();
+        break;
+    case APP_EVENT_LISTS_CHANGED:
+        lists_save();
+        break;
+    case APP_EVENT_API:
+        api_serve(handle_api);
         break;
     case APP_EVENT_CONSOLE:
         on_console();
@@ -1328,6 +1843,13 @@ static void acknowledge(int64_t now)
 static void supervise(void)
 {
     int64_t now = now_ms();
+    watch_alarms(now);
+    if (pairing_code[0] && now > pairing_until) {
+        stop_pairing();
+    }
+    if (restart_at && now >= restart_at) {
+        esp_restart();
+    }
     report(now);
     show_printer(now);
     update_home(now);
@@ -1337,7 +1859,9 @@ static void supervise(void)
     switch (state) {
     case STATE_IDLE:
         track_noise();
-        announce_due();
+        if (!ringing) {
+            announce_due();
+        }
         break;
     case STATE_CONNECTING:
         acknowledge(now);
@@ -1443,10 +1967,14 @@ void app_main(void)
     xTaskCreatePinnedToCoreWithCaps(uplink_task, "uplink", 6144, NULL, 5, NULL, 0, MALLOC_CAP_SPIRAM);
     xTaskCreatePinnedToCoreWithCaps(tool_task, "tools", 12288, NULL, 4, NULL, 0, MALLOC_CAP_SPIRAM);
     static uint8_t stored_reminders[sizeof(reminder_t) * REMINDERS_MAX + 16];
-    reminders_load(stored_reminders, settings_read_reminders(stored_reminders, sizeof(stored_reminders)));
+    reminders_load(stored_reminders, settings_read_blob(NVS_REMINDERS, stored_reminders, sizeof(stored_reminders)));
+    lists_init();
+    load_tokens();
     show_reminders();
     ui_set_mode(UI_OFFLINE, NULL);
     net_start(settings_get()->ssid, settings_get()->password);
+    api_start(esp_app_get_description()->version);
+    api_set_tokens(tokens);
     checkpoint("network");
     static char hub_token[1536];
     settings_read_hub_token(hub_token, sizeof(hub_token));

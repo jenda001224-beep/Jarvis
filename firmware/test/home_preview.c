@@ -155,8 +155,11 @@ int main(int argc, char **argv)
     snprintf(data.printer, sizeof(data.printer), "45 %% · 1:20");
     snprintf(data.event, sizeof(data.event), "11:00 Doktor");
     data.reminders = 1;
+    data.todos = 3;
+    snprintf(data.alarm, sizeof(data.alarm), "7:00");
     data.hub = HOME_HUB_READY;
-    data.prefs = (home_prefs_t) {.volume = 70, .brightness = 100, .sleep = 1, .dark = 0, .orientation = 0, .sensitivity = 1};
+    data.prefs = (home_prefs_t) {.volume = 70, .brightness = 100, .sleep = 1, .dark = 0, .orientation = 0, .sensitivity = 1,
+                                  .night = 1, .night_from = 23 * 60, .night_to = 7 * 60};
     snprintf(data.info, sizeof(data.info), "Jarvis 2.4.0 · Wi-Fi −51 dBm · 10.0.0.29");
     add(&data, "a1", "Stropní světlo", "OBÝVÁK", HOME_LIGHT, true, 80, false);
     add(&data, "a2", "LED pásek", "OBÝVÁK", HOME_STRIP, true, 40, true);

@@ -48,3 +48,7 @@
 #define ICON_MUSIC "\xF3\xB0\x9D\x9A"
 #define ICON_PLAY "\xF3\xB0\x90\x8A"
 #define ICON_PAUSE "\xF3\xB0\x8F\xA4"
+#define ICON_ALARM "\xF3\xB0\x80\xA0"
+#define ICON_FORMAT_LIST_CHECKS "\xF3\xB0\x9D\x96"
+#define ICON_CELLPHONE_LINK "\xF3\xB0\x84\xA1"
+#define ICON_MOON_WANING_CRESCENT "\xF3\xB0\xBD\xA5"

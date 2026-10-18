@@ -31,5 +31,6 @@ bool settings_read_hub_token(char *out, size_t capacity);
 void settings_write_hub_token(const char *token);
 uint32_t settings_read_number(const char *name);
 void settings_write_number(const char *name, uint32_t value);
-size_t settings_read_reminders(void *out, size_t capacity);
-void settings_write_reminders(const void *data, size_t length);
+size_t settings_read_blob(const char *name, void *out, size_t capacity);
+void settings_write_blob(const char *name, const void *data, size_t length);
+bool settings_store(const char *changes_json, char *error, size_t capacity);

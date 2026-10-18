@@ -24,6 +24,8 @@ void ui_clear_transcript(void);
 void ui_append_heard(const char *text);
 void ui_append_spoken(const char *text);
 void ui_set_lamp(bool on);
+void ui_show_code(const char *code);
+void ui_show_alarm(const char *clock_text, const char *label);
 bool ui_lamp(void);
 void ui_home_update(home_data_t *data);
 void ui_set_prefs(const home_prefs_t *prefs);

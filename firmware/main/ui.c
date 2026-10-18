@@ -35,6 +35,7 @@
 #define TEXT_GLYPHS 160
 #define ICON_GLYPHS 48
 #define LAMP_BRIGHTNESS 100
+#define NIGHT_SLEEP_SECONDS 30
 #define FRAME_MS 33
 #define REST_MS 5
 #define RENDER_CORE 1
@@ -88,10 +89,17 @@ static volatile bool dock_visible;
 static volatile bool repaint;
 static volatile uint32_t render_epoch;
 static volatile uint32_t render_done;
-static home_prefs_t prefs = {.volume = 70, .brightness = 100, .sleep = 1, .dark = 0, .orientation = 0, .sensitivity = 1};
+static home_prefs_t prefs = {.volume = 70, .brightness = 100, .sleep = 1, .dark = 0, .orientation = 0, .sensitivity = 1,
+                             .night = 1, .night_from = 23 * 60, .night_to = 7 * 60};
 static home_prefs_t requested;
 static volatile bool prefs_waiting;
 static bool asleep;
+static bool asleep_dark;
+static volatile bool covered;
+static lv_obj_t *cover;
+static lv_obj_t *cover_title;
+static lv_obj_t *cover_big;
+static lv_obj_t *cover_hint;
 static volatile int touch_x;
 static volatile int touch_y;
 static volatile uint32_t touch_until;
@@ -241,14 +249,29 @@ static void refresh_clock(void)
     lv_label_set_text_fmt(date_label, "%s %d. %s", DAYS[local.tm_wday], local.tm_mday, MONTHS[local.tm_mon]);
 }
 
+static bool night_now(void)
+{
+    if (!prefs.night || prefs.night_from == prefs.night_to || !net_time_valid()) {
+        return false;
+    }
+    time_t now = time(NULL);
+    struct tm local;
+    localtime_r(&now, &local);
+    int minutes = local.tm_hour * 60 + local.tm_min;
+    return prefs.night_from < prefs.night_to ? minutes >= prefs.night_from && minutes < prefs.night_to
+                                             : minutes >= prefs.night_from || minutes < prefs.night_to;
+}
+
 static void fall_asleep(void)
 {
+    bool dark = prefs.dark || night_now();
     asleep = true;
+    asleep_dark = dark;
     page = PAGE_AMBIENT;
     if (home_shown) {
-        hide_home(!prefs.dark);
+        hide_home(!dark);
     }
-    if (prefs.dark) {
+    if (dark) {
         scene_visible = false;
         quiesce();
         show_ambient(false);
@@ -267,7 +290,7 @@ static void wake_up(void)
     }
     asleep = false;
     set_brightness(awake_brightness());
-    if (prefs.dark && !home_shown) {
+    if (asleep_dark && !home_shown) {
         show_ambient(!is_voice(mode));
         lv_refr_now(NULL);
         repaint = true;
@@ -281,9 +304,14 @@ static void on_tick(lv_timer_t *timer)
     if (++ticks % (1000 / TICK_MS) == 0) {
         refresh_clock();
         uint32_t inactive = lv_display_get_inactive_time(NULL);
-        int timeout = HOME_SLEEP_SECONDS[prefs.sleep] * 1000;
-        bool quiet = !lamp && mode == UI_IDLE && !returning && timeout > 0 && inactive >= (uint32_t) timeout;
-        if (quiet && !asleep) {
+        bool night = night_now();
+        int seconds = HOME_SLEEP_SECONDS[prefs.sleep];
+        if (night && (seconds == 0 || seconds > NIGHT_SLEEP_SECONDS)) {
+            seconds = NIGHT_SLEEP_SECONDS;
+        }
+        int timeout = seconds * 1000;
+        bool quiet = !lamp && !covered && mode == UI_IDLE && !returning && timeout > 0 && inactive >= (uint32_t) timeout;
+        if (quiet && (!asleep || (night && !asleep_dark))) {
             fall_asleep();
         } else if (!quiet && asleep) {
             wake_up();
@@ -309,7 +337,7 @@ static void on_tick(lv_timer_t *timer)
 static void on_screen_click(lv_event_t *event)
 {
     wake_up();
-    if (mode == UI_IDLE && !home_shown && !lamp && !returning) {
+    if (mode == UI_IDLE && !home_shown && !lamp && !covered && !returning) {
         page = PAGE_HOME;
         show_home();
         return;
@@ -391,9 +419,9 @@ static void render_task(void *arg)
             repaint = false;
             fx_invalidate();
         }
-        if (!lamp && scene_visible) {
+        if (!lamp && !covered && scene_visible) {
             fx_render(&frame, pixels);
-        } else if (!lamp && dock_visible && !home_sheet_open()) {
+        } else if (!lamp && !covered && dock_visible && !home_sheet_open()) {
             dock_clock += seconds;
             fx_render_orb(pixels, HOME_ORB_Y, HOME_ORB_RADIUS + 1.2f * sinf(dock_clock * 1.7f),
                           0.62f + 0.12f * sinf(dock_clock * 1.1f), dock_clock * 0.12f);
@@ -502,6 +530,21 @@ static void build(void)
     lv_obj_remove_flag(lamp_cover, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(lamp_cover, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_event_cb(lamp_cover, on_screen_click, LV_EVENT_CLICKED, NULL);
+
+    cover = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(cover);
+    lv_obj_set_size(cover, FX_WIDTH, FX_HEIGHT);
+    lv_obj_set_style_bg_color(cover, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(cover, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(cover, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(cover, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_event_cb(cover, on_screen_click, LV_EVENT_CLICKED, NULL);
+    cover_title = make_label(cover, font_small, COLOR_ACCENT, 3, "");
+    lv_obj_align(cover_title, LV_ALIGN_TOP_MID, 0, 132);
+    cover_big = make_label(cover, font_clock, COLOR_TEXT, 4, "");
+    lv_obj_align(cover_big, LV_ALIGN_CENTER, 0, -4);
+    cover_hint = make_label(cover, font_caption, COLOR_MUTED, 2, "");
+    lv_obj_align(cover_hint, LV_ALIGN_BOTTOM_MID, 0, -120);
 
     lv_indev_t *injected = lv_indev_create();
     lv_indev_set_type(injected, LV_INDEV_TYPE_POINTER);
@@ -624,6 +667,56 @@ void ui_append_spoken(const char *text)
     append_tail(spoken, SPOKEN_LIMIT, text);
     lv_label_set_text(spoken_label, spoken);
     bsp_display_unlock();
+}
+
+static void hide_cover(void)
+{
+    bsp_display_lock(0);
+    if (covered) {
+        set_visible(cover, false);
+        lv_refr_now(NULL);
+        repaint = true;
+        covered = false;
+    }
+    bsp_display_unlock();
+}
+
+static void show_cover(const char *title, const char *big, const char *hint)
+{
+    bsp_display_lock(0);
+    covered = true;
+    quiesce();
+    lv_label_set_text(cover_title, title);
+    lv_label_set_text(cover_big, big);
+    lv_label_set_text(cover_hint, hint);
+    lv_obj_align(cover_title, LV_ALIGN_TOP_MID, 0, 132);
+    lv_obj_align(cover_big, LV_ALIGN_CENTER, 0, -4);
+    lv_obj_align(cover_hint, LV_ALIGN_BOTTOM_MID, 0, -120);
+    set_visible(cover, true);
+    lv_display_trigger_activity(NULL);
+    wake_up();
+    lv_refr_now(NULL);
+    bsp_display_unlock();
+}
+
+void ui_show_code(const char *code)
+{
+    if (!code) {
+        hide_cover();
+        return;
+    }
+    char spaced[16];
+    snprintf(spaced, sizeof(spaced), "%.3s %.3s", code, strlen(code) > 3 ? code + 3 : "");
+    show_cover("PÁROVÁNÍ S APLIKACÍ", spaced, "ZADEJ KÓD V APLIKACI JARVIS · DOTYK ZRUŠÍ");
+}
+
+void ui_show_alarm(const char *clock_text, const char *label)
+{
+    if (!clock_text) {
+        hide_cover();
+        return;
+    }
+    show_cover(label && label[0] ? label : "BUDÍK", clock_text, "DOTKNI SE PRO VYPNUTÍ");
 }
 
 void ui_set_lamp(bool on)

@@ -100,6 +100,26 @@ Dotyk na hodiny otevře domovskou obrazovku ve stylu Apple Home: nahoře čas, d
 
 Po uplynutí doby uspání se deska vrátí na hodiny se ztlumeným jasem, nebo úplně zhasne. Probudí ji dotyk nebo oslovení.
 
+## Aplikace pro iPhone
+
+Složka `app/` je aplikace Jarvis pro iPhone (SwiftUI, iOS 17 a novější). Otevři `app/Jarvis.xcodeproj` v Xcode,
+vyber svůj iPhone a spusť. Aplikace mluví s displejem přímo po domácí Wi-Fi, bez cloudu, takže funguje jen doma.
+
+- **Spárování:** aplikace displej najde sama (nebo zadej `jarvis.local` či IP). Displej ukáže šestimístný kód,
+  ten se opíše do aplikace. Displej si pamatuje čtyři telefony.
+- **Úkoly:** společný seznam pro aplikaci i Jarvise („Jarvisi, zapiš si koupit mléko“, „co mám na seznamu?“).
+- **Budíky:** opakované ve vybrané dny nebo jednorázové. Displej zvoní, dotyk nebo oslovení budík vypne a Jarvis
+  pak pozdraví a řekne, co pána čeká. Připomínky od Jarvise jsou vidět a jdou zrušit.
+- **Zařízení (J-WALL Display):** stav, lampička, vzkaz, který Jarvis doma přečte nahlas, a všechna nastavení:
+  hlasitost, jas, uspávání, noční režim, orientace, citlivost, hlas, místo, hledání, domov a cesta, Wi-Fi, restart.
+
+`app/Tools/generate_project.py` znovu vytvoří projekt, když přibude soubor.
+
+## Noční režim
+
+Od 23:00 do 7:00 displej po půl minutě klidu úplně zhasne, místo hodin je tma. Dotyk nebo oslovení ho probudí.
+Čas a zapnutí jsou v nastavení na displeji i v aplikaci.
+
 ## Připomínky
 
 „Jarvisi, připomeň mi v pět, ať vypnu troubu“ nebo odpověď „ano“ na nabídku, že dá vědět, kdy vyrazit. Připomínky přežijí vypnutí desky, vejde se jich osm.
@@ -195,5 +215,6 @@ cd /Volumes/Jan/Jarvis && source tools/idf-env.sh && python tools/bench.py flash
 | `firmware/main/` | firmware: `main.c` řízení a osobnost, `wake.c` oslovení, `live.c` a `proto.c` Gemini, `audio.c` zvuk, `ikea.c` světla, `printer.c` a `bambu.c` tiskárna, `calendar.c` a `agenda.c` kalendář, `travel.c` a `geo.c` doba cesty, `reminders.c` připomínky, `weather.c` a `meteo.c` počasí, `console.c` servisní konzole, `web.c` stahování, `search.c` a `tavily.c` hledání na webu, `sounds/` nahraná odpověď na oslovení, `ui.c` stránky a přechody mezi nimi, `home.c` domovská obrazovka a nastavení, `control.c` ovládání světel z dotyku, `fx.c` a `scene.c` kreslení a animace koule a prstenců |
 | `firmware/test/` | testy, které běží na počítači |
 | `docs/` | web flasher (GitHub Pages) |
-| `tools/` | sestavení a vydání |
+| `tools/` | sestavení, vydání a zkouška rozhraní pro aplikaci (`api_check.py`) |
+| `app/` | aplikace pro iPhone |
 | `varianta-home-assistant/` | starší verze postavená na ESPHome a Home Assistantu, umí i Apple Music |

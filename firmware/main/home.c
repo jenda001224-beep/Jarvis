@@ -42,6 +42,11 @@ typedef struct {
     uint32_t color;
 } swatch_t;
 
+#define MINUTES_PER_DAY 1440
+#define NIGHT_STEP_MINUTES 30
+
+static const char *const NIGHT_LABELS[] = {"vypnuto", "zapnuto"};
+
 const int HOME_SLEEP_SECONDS[HOME_SLEEP_CHOICES] = {30, 60, 300, 900, 0};
 
 static const char *const SLEEP_LABELS[HOME_SLEEP_CHOICES] = {"30 s", "1 min", "5 min", "15 min", "nikdy"};
@@ -525,6 +530,68 @@ static void make_level(lv_obj_t *list, const char *glyph, const char *title, int
     lv_obj_add_event_cb(slider, on_slid, LV_EVENT_RELEASED, target);
 }
 
+static void show_minutes(lv_obj_t *label, int minutes)
+{
+    lv_label_set_text_fmt(label, "%d:%02d", minutes / 60, minutes % 60);
+}
+
+static void on_step(lv_event_t *event)
+{
+    lv_obj_t *button = lv_event_get_current_target_obj(event);
+    lv_obj_t *value = lv_obj_get_user_data(button);
+    int *target = lv_obj_get_user_data(value);
+    int step = (int) (intptr_t) lv_event_get_user_data(event);
+    *target = ((*target + step) % MINUTES_PER_DAY + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+    show_minutes(value, *target);
+    send_prefs();
+}
+
+static lv_obj_t *make_step_button(lv_obj_t *parent, const char *text, lv_obj_t *value, int step)
+{
+    lv_obj_t *button = lv_obj_create(parent);
+    style_panel(button, 20);
+    lv_obj_set_size(button, 40, 40);
+    lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_user_data(button, value);
+    lv_obj_add_event_cb(button, on_step, LV_EVENT_CLICKED, (void *) (intptr_t) step);
+    lv_obj_center(make_label(button, font.body, COLOR_TEXT, text));
+    return button;
+}
+
+static void make_clock_step(lv_obj_t *row, const char *caption, int *target)
+{
+    lv_obj_t *group = lv_obj_create(row);
+    lv_obj_remove_style_all(group);
+    lv_obj_set_size(group, LV_SIZE_CONTENT, 40);
+    lv_obj_set_flex_flow(group, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(group, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(group, 8, 0);
+    lv_obj_remove_flag(group, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    make_label(group, font.small, COLOR_MUTED, caption);
+    lv_obj_t *value = lv_label_create(group);
+    lv_obj_set_style_text_font(value, font.body, 0);
+    lv_obj_set_style_text_color(value, lv_color_hex(COLOR_TEXT), 0);
+    lv_obj_set_width(value, 52);
+    lv_obj_set_style_text_align(value, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_user_data(value, target);
+    show_minutes(value, *target);
+    lv_obj_move_to_index(make_step_button(group, "–", value, -NIGHT_STEP_MINUTES), 1);
+    make_step_button(group, "+", value, NIGHT_STEP_MINUTES);
+}
+
+static void make_night(lv_obj_t *list)
+{
+    make_choices(list, ICON_MOON_WANING_CRESCENT, "NOČNÍ REŽIM — DISPLEJ ZHASNE", NIGHT_LABELS, 2, &editing.night);
+    lv_obj_t *row = lv_obj_create(list);
+    lv_obj_remove_style_all(row);
+    lv_obj_set_size(row, lv_pct(100), 40);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    make_clock_step(row, "OD", &editing.night_from);
+    make_clock_step(row, "DO", &editing.night_to);
+}
+
 static void on_settings(lv_event_t *event)
 {
     lv_obj_t *panel = open_sheet("Nastavení");
@@ -544,6 +611,7 @@ static void on_settings(lv_event_t *event)
     make_level(list, ICON_BRIGHTNESS_6, "JAS DISPLEJE", 10, &editing.brightness);
     make_choices(list, ICON_POWER_SLEEP, "USPAT PO", SLEEP_LABELS, HOME_SLEEP_CHOICES, &editing.sleep);
     make_choices(list, ICON_WEATHER_NIGHT, "PO USPÁNÍ", AFTER_LABELS, 2, &editing.dark);
+    make_night(list);
     make_choices(list, ICON_SCREEN_ROTATION, "ORIENTACE", ORIENTATION_LABELS, 4, &editing.orientation);
     make_choices(list, ICON_EAR_HEARING, "CITLIVOST NA OSLOVENÍ", SENSITIVITY_LABELS, 3, &editing.sensitivity);
     settings_title(list, ICON_INFORMATION_OUTLINE, "O ZAŘÍZENÍ");
@@ -685,10 +753,14 @@ static void build_pills(const home_data_t *data)
         }
         make_pill(lit ? ICON_LIGHTBULB : ICON_LIGHTBULB_OUTLINE, text);
     }
-    if (data->printer[0]) {
-        make_pill(ICON_PRINTER_3D, data->printer);
+    if (data->alarm[0]) {
+        make_pill(ICON_ALARM, data->alarm);
     }
-    if (data->event[0]) {
+    if (data->todos > 0) {
+        snprintf(text, sizeof(text), "%d %s", data->todos,
+                 data->todos == 1 ? "úkol" : data->todos < 5 ? "úkoly" : "úkolů");
+        make_pill(ICON_FORMAT_LIST_CHECKS, text);
+        if (data->event[0]) {
         make_pill(ICON_CALENDAR_BLANK, data->event);
     }
     if (data->reminders > 0) {
@@ -696,6 +768,10 @@ static void build_pills(const home_data_t *data)
                  data->reminders == 1 ? "připomínka" : data->reminders < 5 ? "připomínky" : "připomínek");
         make_pill(ICON_BELL_RING, text);
     }
+    if (data->printer[0]) {
+        make_pill(ICON_PRINTER_3D, data->printer);
+    }
+}
 }
 
 lv_obj_t *home_create(lv_obj_t *parent, const home_fonts_t *fonts, const home_actions_t *actions)
@@ -803,7 +879,8 @@ void home_update(const home_data_t *data)
         lv_obj_align(weather_text, LV_ALIGN_TOP_RIGHT, -SIDE, 108);
     }
     bool pills = !built || strcmp(data->printer, shown.printer) || strcmp(data->event, shown.event) ||
-                 data->reminders != shown.reminders || data->hub != shown.hub ||
+                 data->reminders != shown.reminders || data->todos != shown.todos ||
+                 strcmp(data->alarm, shown.alarm) || data->hub != shown.hub ||
                  data->device_count != shown.device_count;
     for (int i = 0; i < data->device_count && !pills; i++) {
         pills = data->devices[i].on != shown.devices[i].on || data->devices[i].reachable != shown.devices[i].reachable;

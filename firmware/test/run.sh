@@ -7,7 +7,7 @@ mkdir -p "$OUT"
 cc -std=c11 -Wall -Wextra -O1 -g -fsanitize=address,undefined -I../main -o "$OUT/test_resample" test_resample.c ../main/resample.c -lm
 cc -std=c11 -Wall -Wextra -O1 -g -fsanitize=address,undefined -DFIXTURE_SUM=-915900 -I../main -I"$CJSON" -o "$OUT/test_proto" test_proto.c ../main/proto.c "$CJSON/cJSON.c" -lm 2>/dev/null
 cc -std=c11 -w -I../main -I"$CJSON" -o "$OUT/dump_wire" dump_wire.c ../main/proto.c "$CJSON/cJSON.c" -lm
-cc -std=c11 -Wall -Wextra -O1 -g -fsanitize=address,undefined -I../main -I"$CJSON" -o "$OUT/test_modules" test_modules.c ../main/bambu.c ../main/reminders.c ../main/geo.c ../main/meteo.c ../main/proto.c ../main/tavily.c "$CJSON/cJSON.c" -lm 2>/dev/null
+cc -std=c11 -Wall -Wextra -O1 -g -fsanitize=address,undefined -I../main -I"$CJSON" -o "$OUT/test_modules" test_modules.c ../main/bambu.c ../main/reminders.c ../main/geo.c ../main/meteo.c ../main/proto.c ../main/tavily.c ../main/todos.c ../main/alarms.c "$CJSON/cJSON.c" -lm 2>/dev/null
 cc -std=c11 -Wall -Wextra -O1 -g -fsanitize=address,undefined -I../main -I"$CJSON" -o "$OUT/agenda_cli" agenda_cli.c ../main/agenda.c "$CJSON/cJSON.c" -lm 2>/dev/null
 "$OUT/test_resample"
 "$OUT/test_proto"
