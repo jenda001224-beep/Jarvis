@@ -100,7 +100,10 @@ int main(void)
     assert(cJSON_GetObjectItem(cJSON_GetArrayItem(tools, 0), "googleSearch"));
     cJSON *declarations = cJSON_GetObjectItem(cJSON_GetArrayItem(tools, 1), "functionDeclarations");
     assert(strcmp(cJSON_GetObjectItem(cJSON_GetArrayItem(declarations, 0), "name")->valuestring, "set_devices") == 0);
-    assert(cJSON_GetObjectItem(body, "inputAudioTranscription"));
+    const cJSON *languages = cJSON_GetObjectItem(cJSON_GetObjectItem(body, "inputAudioTranscription"), "languageCodes");
+    assert(cJSON_GetArraySize(languages) == 2);
+    assert(strcmp(cJSON_GetArrayItem(languages, 0)->valuestring, "cs-CZ") == 0);
+    assert(strcmp(cJSON_GetArrayItem(languages, 1)->valuestring, "en-US") == 0);
     assert(cJSON_GetObjectItem(body, "outputAudioTranscription"));
     cJSON *detection = cJSON_GetObjectItem(cJSON_GetObjectItem(body, "realtimeInputConfig"), "automaticActivityDetection");
     assert(cJSON_GetObjectItem(detection, "silenceDurationMs")->valueint == 600);

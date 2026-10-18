@@ -124,7 +124,10 @@ char *proto_build_setup(const proto_setup_t *setup)
         }
     }
 
-    cJSON_AddObjectToObject(body, "inputAudioTranscription");
+    cJSON *transcription = cJSON_AddObjectToObject(body, "inputAudioTranscription");
+    cJSON *languages = cJSON_AddArrayToObject(transcription, "languageCodes");
+    cJSON_AddItemToArray(languages, cJSON_CreateString("cs-CZ"));
+    cJSON_AddItemToArray(languages, cJSON_CreateString("en-US"));
     cJSON_AddObjectToObject(body, "outputAudioTranscription");
 
     cJSON *realtime = cJSON_AddObjectToObject(body, "realtimeInputConfig");
