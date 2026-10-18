@@ -31,6 +31,9 @@
 #define HEARD_LIMIT 46
 #define SPOKEN_LIMIT 68
 #define DIM_PERCENT 45
+#define DIGIT_GLYPHS 24
+#define TEXT_GLYPHS 160
+#define ICON_GLYPHS 48
 #define LAMP_BRIGHTNESS 100
 #define FRAME_MS 33
 #define REST_MS 5
@@ -416,27 +419,27 @@ static void *allocate_external(size_t size)
     return heap_caps_malloc(size, MALLOC_CAP_SPIRAM);
 }
 
-static lv_font_t *face(const uint8_t *start, const uint8_t *end, int size)
+static lv_font_t *face(const uint8_t *start, const uint8_t *end, int size, int glyphs)
 {
-    return lv_tiny_ttf_create_data(start, end - start, size);
+    return lv_tiny_ttf_create_data_ex(start, end - start, size, LV_FONT_KERNING_NORMAL, glyphs);
 }
 
 static void build(void)
 {
-    lv_font_t *font_clock = face(inter_clock_ttf_start, inter_clock_ttf_end, 92);
-    lv_font_t *font_caption = face(inter_500_ttf_start, inter_500_ttf_end, 12);
-    lv_font_t *font_small = face(inter_500_ttf_start, inter_500_ttf_end, 13);
-    lv_font_t *font_heard = face(inter_400_ttf_start, inter_400_ttf_end, 17);
-    lv_font_t *font_body = face(inter_400_ttf_start, inter_400_ttf_end, 20);
+    lv_font_t *font_clock = face(inter_clock_ttf_start, inter_clock_ttf_end, 92, DIGIT_GLYPHS);
+    lv_font_t *font_caption = face(inter_500_ttf_start, inter_500_ttf_end, 12, TEXT_GLYPHS);
+    lv_font_t *font_small = face(inter_500_ttf_start, inter_500_ttf_end, 13, TEXT_GLYPHS);
+    lv_font_t *font_heard = face(inter_400_ttf_start, inter_400_ttf_end, 17, TEXT_GLYPHS);
+    lv_font_t *font_body = face(inter_400_ttf_start, inter_400_ttf_end, 20, TEXT_GLYPHS);
     const home_fonts_t home_fonts = {
-        .clock = face(inter_200_ttf_start, inter_200_ttf_end, 64),
-        .temperature = face(inter_200_ttf_start, inter_200_ttf_end, 44),
-        .heading = face(inter_500_ttf_start, inter_500_ttf_end, 22),
-        .body = face(inter_500_ttf_start, inter_500_ttf_end, 16),
-        .small = face(inter_400_ttf_start, inter_400_ttf_end, 13),
+        .clock = face(inter_200_ttf_start, inter_200_ttf_end, 64, DIGIT_GLYPHS),
+        .temperature = face(inter_200_ttf_start, inter_200_ttf_end, 44, DIGIT_GLYPHS),
+        .heading = face(inter_500_ttf_start, inter_500_ttf_end, 22, TEXT_GLYPHS),
+        .body = face(inter_500_ttf_start, inter_500_ttf_end, 16, TEXT_GLYPHS),
+        .small = face(inter_400_ttf_start, inter_400_ttf_end, 13, TEXT_GLYPHS),
         .caption = font_caption,
-        .icon = face(icons_ttf_start, icons_ttf_end, 22),
-        .icon_large = face(icons_ttf_start, icons_ttf_end, 40),
+        .icon = face(icons_ttf_start, icons_ttf_end, 22, ICON_GLYPHS),
+        .icon_large = face(icons_ttf_start, icons_ttf_end, 40, ICON_GLYPHS),
     };
     const home_actions_t home_actions = {
         .power = home_power,

@@ -15,6 +15,9 @@
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#if CONFIG_HEAP_TRACING_STANDALONE
+#include "esp_heap_trace.h"
+#endif
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/idf_additions.h"
@@ -942,6 +945,27 @@ static void update_home(int64_t now)
     ui_home_update(&data);
 }
 
+#if CONFIG_HEAP_TRACING_STANDALONE
+#define TRACE_RECORDS 3000
+
+static void trace_heap(const char *argument)
+{
+    static heap_trace_record_t *records;
+    if (strcmp(argument, "start") == 0) {
+        if (!records) {
+            records = heap_caps_calloc(TRACE_RECORDS, sizeof(heap_trace_record_t), MALLOC_CAP_SPIRAM);
+            if (!records || heap_trace_init_standalone(records, TRACE_RECORDS) != ESP_OK) {
+                return;
+            }
+        }
+        heap_trace_start(HEAP_TRACE_LEAKS);
+    } else if (strcmp(argument, "dump") == 0) {
+        heap_trace_stop();
+        heap_trace_dump_caps(MALLOC_CAP_INTERNAL);
+    }
+}
+#endif
+
 static void on_console(void)
 {
     char line[CONSOLE_LINE];
@@ -974,6 +998,10 @@ static void on_console(void)
         }
     } else if (strcmp(line, "touch") == 0) {
         app_post(APP_EVENT_TOUCH);
+#if CONFIG_HEAP_TRACING_STANDALONE
+    } else if (strcmp(line, "heap") == 0) {
+        trace_heap(argument);
+#endif
     } else if (strcmp(line, "remind") == 0 && net_time_valid()) {
         char *text = NULL;
         long seconds = strtol(argument, &text, 10);

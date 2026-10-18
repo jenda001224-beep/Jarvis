@@ -15,6 +15,7 @@ Každé tvrzení, na kterém firmware stojí, a z čeho vychází. Stav k 17. 10
 | Dotyk prstem po otočení, uspání do tmy, ovládání světel z dlaždic | **neověřeno** (hub nespárovaný) |
 | Verze 2.4.1: hlášení „Nepodařilo se otevřít spojení“ u uživatele | příčinu jsem nezachytil (deska se při otevření výpisu restartuje); 50 otevření nastavení a 8 otočení paměť nevyčerpalo (souvislý blok 32 kB). Připojení se teď zkouší až třikrát a chyba se vypisuje i s kódem TLS a socketu |
 | Verze 2.4.1: lampička svítila jen jasem z nastavení | opraveno, při lampičce je jas vždy 100 % |
+| Verze 2.4.2: docházela vnitřní RAM (příčina „Nepodařilo se otevřít spojení“) | chyceno trasováním haldy (`heap start` / `heap dump` v ladicím sestavení s `CONFIG_HEAP_TRACING_STANDALONE`): mezipaměť písmen LVGL (tiny_ttf, 12 písem po 512 znacích) zakládala drobné záznamy ve vnitřní RAM, v klidu asi 150 B za minutu, při rozhovoru desítky kB. Opraveno: všechny alokace LVGL jdou do PSRAM (`lvgl_memory.c`) a mezipaměť každého písma je omezená. Na desce: 6 minut klidu beze změny (124 kB volných, největší blok 63 kB), po třech rozhovorech o 0,7 kB méně a dál beze změny; dřív v klidu 87 kB a pokles |
 
 ## Co ukázala skutečná deska (verze 2.3, výpis přes USB, 11. 10. 2026)
 
