@@ -1144,11 +1144,15 @@ static void report(int64_t now)
     int frames_per_second = 0;
     int frame_microseconds = 0;
     ui_render_stats(&frames_per_second, &frame_microseconds);
+    int draws = 0;
+    int draw_average = 0;
+    int draw_longest = 0;
+    display_take_stats(&draws, &draw_average, &draw_longest);
     ESP_LOGI(TAG,
-             "state %d, wifi %d dBm, mic peak %d in %u frames, display %d fps at %d us, heap %u internal (lowest %u, "
-             "block %u), %u external",
+             "state %d, wifi %d dBm, mic peak %d in %u frames, display %d fps at %d us, ui %d draws at %d us (longest "
+             "%d), heap %u internal (lowest %u, block %u), %u external",
              (int) state, net_signal(), wake_take_peak(), (unsigned) (frames - last_frames), frames_per_second,
-             frame_microseconds,
+             frame_microseconds, draws, draw_average, draw_longest,
              (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
              (unsigned) heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
              (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
