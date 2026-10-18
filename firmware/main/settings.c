@@ -66,6 +66,7 @@ bool settings_load(void)
     copy_string(settings.ssid, sizeof(settings.ssid), root, "ssid");
     copy_string(settings.password, sizeof(settings.password), root, "password");
     copy_string(settings.api_key, sizeof(settings.api_key), root, "key");
+    copy_string(settings.search_key, sizeof(settings.search_key), root, "search_key");
     copy_string(settings.model, sizeof(settings.model), root, "model");
     copy_string(settings.voice, sizeof(settings.voice), root, "voice");
     copy_string(settings.place, sizeof(settings.place), root, "place");

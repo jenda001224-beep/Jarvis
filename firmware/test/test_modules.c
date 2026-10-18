@@ -9,6 +9,7 @@
 #include "meteo.h"
 #include "proto.h"
 #include "reminders.h"
+#include "tavily.h"
 
 static const char FULL_REPORT[] =
     "{\"print\":{\"bed_target_temper\":60.0,\"bed_temper\":59.6,\"command\":\"push_status\",\"fail_reason\":\"0\","
@@ -245,6 +246,55 @@ static void test_text_message(void)
     proto_free(message);
 }
 
+static void test_search(void)
+{
+    char *request = tavily_request("bazén Step Praha otevírací doba");
+    cJSON *sent = cJSON_Parse(request);
+    assert(strcmp(cJSON_GetObjectItem(sent, "query")->valuestring, "bazén Step Praha otevírací doba") == 0);
+    assert(strcmp(cJSON_GetObjectItem(sent, "search_depth")->valuestring, "basic") == 0);
+    assert(cJSON_GetObjectItem(sent, "max_results")->valueint == 5);
+    cJSON_Delete(sent);
+    free(request);
+
+    char long_text[1400] = "";
+    while (strlen(long_text) + sizeof("žluť ") < sizeof(long_text)) {
+        strcat(long_text, "žluť ");
+    }
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddStringToObject(response, "query", "bazén Step");
+    cJSON_AddStringToObject(response, "answer", "Bazén Step je dnes otevřený do 21:30.");
+    cJSON *results = cJSON_AddArrayToObject(response, "results");
+    for (int i = 0; i < 7; i++) {
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "title", "Otevírací doba");
+        cJSON_AddStringToObject(item, "url", "https://example.cz/bazen");
+        cJSON_AddStringToObject(item, "content", i == 0 ? long_text : i == 1 ? "" : "Po–Pá 6:00–21:30");
+        cJSON_AddNumberToObject(item, "score", 0.8);
+        cJSON_AddItemToArray(results, item);
+    }
+    char *raw = cJSON_PrintUnformatted(response);
+    cJSON_Delete(response);
+    char *summary = tavily_summarize(raw, strlen(raw));
+    free(raw);
+    cJSON *root = cJSON_Parse(summary);
+    assert(root);
+    assert(strcmp(cJSON_GetObjectItem(root, "answer")->valuestring, "Bazén Step je dnes otevřený do 21:30.") == 0);
+    const cJSON *found = cJSON_GetObjectItem(root, "results");
+    assert(cJSON_GetArraySize(found) == 5);
+    const char *trimmed = cJSON_GetObjectItem(cJSON_GetArrayItem(found, 0), "content")->valuestring;
+    size_t length = strlen(trimmed);
+    assert(length <= 600 + 3 && length > 590);
+    assert(strcmp(trimmed + length - 3, "…") == 0);
+    assert(((unsigned char) trimmed[length - 4] & 0xC0) != 0xC0);
+    assert(strcmp(cJSON_GetObjectItem(cJSON_GetArrayItem(found, 1), "content")->valuestring, "Po–Pá 6:00–21:30") == 0);
+    printf("search tool answer: %.160s…\n", summary);
+    cJSON_Delete(root);
+    free(summary);
+
+    assert(tavily_summarize("{\"results\":[]}", 14) == NULL);
+    assert(tavily_summarize("not json", 8) == NULL);
+}
+
 int main(void)
 {
     test_printer();
@@ -252,6 +302,7 @@ int main(void)
     test_travel();
     test_weather();
     test_text_message();
-    puts("modules: printer, reminders, travel, weather and text prompt pass");
+    test_search();
+    puts("modules: printer, reminders, travel, weather, text prompt and search pass");
     return 0;
 }

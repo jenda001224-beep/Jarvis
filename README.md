@@ -33,7 +33,7 @@ Deska Waveshare **ESP32-S3-Touch-LCD-4B** (4" displej, dva mikrofony, reprodukto
 
 ## Stav
 
-Verze 2.4, ověřeno na skutečné desce 17. 10. 2026.
+Verze 2.4.4, ověřeno na skutečné desce 18. 10. 2026.
 
 | Co | Stav |
 |---|---|
@@ -110,7 +110,8 @@ Když nastane čas, Jarvis promluví sám a zeptá se, jestli ho slyšíš. Sta�
 
 | Akce | Co udělá |
 |---|---|
-| „Jarvisi“ | začne poslouchat |
+| „Jarvisi“ | odpoví „Ano, pane?“, „Poslouchám, pane.“ nebo „Prosím, pane?“ a poslouchá; když mluvíš rovnou dál, nepřerušuje tě |
+| „Jarvisi, v kolik dnes zavírá bazén?“ | hledá na webu (s klíčem Tavily nebo placeným tarifem Gemini) |
 | „Jarvisi, dej mi trošku světla“ | rozsvítí displej bíle na plný jas; dotyk nebo „zhasni displej“ ho vrátí |
 | „Jarvisi, zapni LEDky, modrá, jas 100“ | zapne světla z IKEA hubu a nastaví barvu a jas |
 | „Jarvisi, jak je na tom tisk?“ | stav tiskárny Bambu Lab |
@@ -126,7 +127,10 @@ Když nastane čas, Jarvis promluví sám a zeptá se, jestli ho slyšíš. Sta�
 
 - **Jarvis vyká a říká „pane“.** Mluví jako Jarvis z Iron Mana, se suchým humorem. Povahu má v `firmware/main/main.c` v textu `PERSONA`.
 - **Oslovení „Jarvisi“ hlídá model natrénovaný na „Jarvis“.** Je to hotový model od Espressifu. Samotné „Jarvis“ pozná vždy, plynulé „Jarvisi“ jen se zvýšenou citlivostí, proto je výchozí citlivost střední. Když se ozývá sám, sniž ji ve flasheru; když neslyší, řekni „Jarvis“ a po krátké pauze pokračuj.
-- **Bezplatný tarif Gemini stačí,** jen neumí hledat na Googlu. Jarvis to pozná sám a první dotaz po zapnutí kvůli tomu trvá o vteřinu déle. Počasí proto bere odjinud (Open-Meteo), zprávy bez placeného tarifu neumí.
+- **Bezplatný tarif Gemini stačí,** jen nesmí hledat na Googlu (ověřeno 18. 10. 2026: Google odmítá hledání v živém
+  hovoru i v obyčejném dotazu). Na webu proto Jarvis hledá přes službu Tavily: ve flasheru vyplň její klíč
+  (účet zdarma bez karty, 1 000 hledání měsíčně). Kdo zapne placený tarif Gemini, tomu Jarvis hledá rovnou na Googlu;
+  jednou denně to zkusí sám. Počasí bere z Open-Meteo.
 - **Hlasitost 0 znamená ticho:** reproduktor i zesilovač zůstanou vypnuté, všechno ostatní běží dál.
 - **Deska chce slušnou Wi-Fi.** Přenáší zvuk oběma směry naživo; se slabým signálem (pod −70 dBm) se řeč trhá. Sílu signálu vypisuje do servisního výpisu.
 - **Když Jarvis mluví, neposlouchá.** Mikrofony by slyšely reproduktor. Skočit do řeči mu jde jen dotykem.
@@ -188,7 +192,7 @@ cd /Volumes/Jan/Jarvis && source tools/idf-env.sh && python tools/bench.py flash
 
 | Složka | Obsah |
 |---|---|
-| `firmware/main/` | firmware: `main.c` řízení a osobnost, `wake.c` oslovení, `live.c` a `proto.c` Gemini, `audio.c` zvuk, `ikea.c` světla, `printer.c` a `bambu.c` tiskárna, `calendar.c` a `agenda.c` kalendář, `travel.c` a `geo.c` doba cesty, `reminders.c` připomínky, `weather.c` a `meteo.c` počasí, `console.c` servisní konzole, `web.c` stahování, `ui.c` stránky a přechody mezi nimi, `home.c` domovská obrazovka a nastavení, `control.c` ovládání světel z dotyku, `fx.c` a `scene.c` kreslení a animace koule a prstenců |
+| `firmware/main/` | firmware: `main.c` řízení a osobnost, `wake.c` oslovení, `live.c` a `proto.c` Gemini, `audio.c` zvuk, `ikea.c` světla, `printer.c` a `bambu.c` tiskárna, `calendar.c` a `agenda.c` kalendář, `travel.c` a `geo.c` doba cesty, `reminders.c` připomínky, `weather.c` a `meteo.c` počasí, `console.c` servisní konzole, `web.c` stahování, `search.c` a `tavily.c` hledání na webu, `sounds/` nahraná odpověď na oslovení, `ui.c` stránky a přechody mezi nimi, `home.c` domovská obrazovka a nastavení, `control.c` ovládání světel z dotyku, `fx.c` a `scene.c` kreslení a animace koule a prstenců |
 | `firmware/test/` | testy, které běží na počítači |
 | `docs/` | web flasher (GitHub Pages) |
 | `tools/` | sestavení a vydání |

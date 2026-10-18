@@ -7,6 +7,7 @@ const fields = {
   volume: document.getElementById("volume"),
   sensitivity: document.getElementById("sensitivity"),
   search: document.getElementById("search"),
+  searchKey: document.getElementById("search-key"),
   printerCode: document.getElementById("printer-code"),
   printerIp: document.getElementById("printer-ip"),
   printerSerial: document.getElementById("printer-serial"),
@@ -43,6 +44,7 @@ function settings() {
     printer_ip: fields.printerIp.value.trim(),
     printer_serial: fields.printerSerial.value.trim().toUpperCase(),
     home: fields.home.value.trim(),
+    search_key: fields.searchKey.value.trim(),
   };
   Object.entries(optional).forEach(([name, value]) => {
     if (value) {
@@ -74,6 +76,9 @@ function problem(values) {
   }
   if ((values.printer_ip || values.printer_serial) && !values.printer_code) {
     return "K tiskárně chybí přístupový kód.";
+  }
+  if (values.search_key && !/^tvly-[A-Za-z0-9_-]+$/.test(values.search_key)) {
+    return "Klíč Tavily začíná tvly- a nemá mezery.";
   }
   return "";
 }

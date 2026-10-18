@@ -15,6 +15,7 @@
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #if CONFIG_HEAP_TRACING_STANDALONE
 #include "esp_heap_trace.h"
 #endif
@@ -31,6 +32,7 @@
 #include "net.h"
 #include "printer.h"
 #include "reminders.h"
+#include "search.h"
 #include "settings.h"
 #include "travel.h"
 #include "ui.h"
@@ -46,11 +48,19 @@
 #define RESERVE_MINUTES 15
 #define CONTROL_PRIORITY 6
 #define SEARCH_REFUSED "no_search"
+#define SEARCH_REFUSED_DAY "no_search_day"
+#define SECONDS_PER_DAY 86400
 #define HOME_INTERVAL_MS 1000
 #define STALLED_REPLY_TIMEOUT_MS 5000
 #define SESSION_LIMIT_MS (9 * 60 * 1000)
 #define ERROR_SHOWN_MS 5000
 #define ECHO_GUARD_MS 300
+#define ACK_QUIET_MS 300
+#define ACK_WINDOW_MS 1200
+#define NOISE_SMOOTHING 0.03f
+#define SPEECH_ABOVE_NOISE 15
+#define LOOP_WAIT_MS 100
+#define ACK_LOOP_WAIT_MS 20
 #define UPLINK_SAMPLES 1024
 #define REPORT_INTERVAL_MS 3000
 #define VOICE_LEVEL 30
@@ -106,6 +116,11 @@ static const char PERSONA[] =
 
 static const char SEARCHING[] = "Zprávy a jiné čerstvé informace si vyhledej na internetu.";
 
+static const char OWN_SEARCHING[] =
+    "Aktuální informace z internetu, třeba otevírací doby, zprávy, ceny, kontakty nebo program akcí, zjistíš "
+    "nástrojem search_web. Než ho zavoláš, řekni pánovi krátce, že se podíváš. Odpověz stručně podle výsledků; "
+    "když v nich odpověď není, řekni to a nic si nedomýšlej.";
+
 static const char NOT_SEARCHING[] =
     "Na internetu teď hledat neumíš. Když se pán ptá na zprávy nebo jiné čerstvé informace, řekni to jednou větou.";
 
@@ -152,6 +167,11 @@ static const char REMINDER_FUNCTIONS[] =
     "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{}}},"
     "{\"name\":\"cancel_reminder\",\"description\":\"Zruší připomínku podle id z list_reminders.\","
     "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{\"id\":{\"type\":\"INTEGER\"}},\"required\":[\"id\"]}}";
+
+static const char SEARCH_FUNCTION[] =
+    "{\"name\":\"search_web\",\"description\":\"Vyhledá na internetu aktuální informace a vrátí krátkou odpověď "
+    "a nalezené stránky.\",\"parameters\":{\"type\":\"OBJECT\",\"properties\":{\"query\":{\"type\":\"STRING\","
+    "\"description\":\"Dotaz jako do vyhledávače, s místem a časem, když na nich záleží\"}},\"required\":[\"query\"]}}";
 
 static const char WEATHER_FUNCTION[] =
     "{\"name\":\"get_weather\",\"description\":\"Vrátí aktuální počasí a předpověď po dnech.\","
@@ -202,6 +222,31 @@ static volatile bool tool_busy;
 static volatile int heard_letters;
 static bool search_allowed = true;
 static uint32_t key_mark;
+
+extern const uint8_t ack_ano_start[] asm("_binary_ack_ano_pcm_start");
+extern const uint8_t ack_ano_end[] asm("_binary_ack_ano_pcm_end");
+extern const uint8_t ack_posloucham_start[] asm("_binary_ack_posloucham_pcm_start");
+extern const uint8_t ack_posloucham_end[] asm("_binary_ack_posloucham_pcm_end");
+extern const uint8_t ack_prosim_start[] asm("_binary_ack_prosim_pcm_start");
+extern const uint8_t ack_prosim_end[] asm("_binary_ack_prosim_pcm_end");
+
+typedef struct {
+    const uint8_t *start;
+    const uint8_t *end;
+} clip_t;
+
+static const clip_t ACKNOWLEDGEMENTS[] = {
+    {ack_ano_start, ack_ano_end},
+    {ack_posloucham_start, ack_posloucham_end},
+    {ack_prosim_start, ack_prosim_end},
+};
+
+static float noise_floor;
+static bool ack_pending;
+static bool acking;
+static int64_t ack_since;
+static int64_t ack_loud;
+static int64_t ack_ended;
 static bool turn_complete;
 static bool replied;
 static int64_t state_since;
@@ -435,6 +480,8 @@ static char *run_tool(const tool_call_t *call)
         result = ikea_tool_get();
     } else if (strcmp(call->name, "get_weather") == 0) {
         result = weather_tool(call->args);
+    } else if (strcmp(call->name, "search_web") == 0) {
+        result = search_tool(call->args);
     } else if (strcmp(call->name, "printer_status") == 0) {
         result = printer_tool_status();
     } else if (strcmp(call->name, "get_calendar") == 0) {
@@ -485,12 +532,17 @@ static void uplink_task(void *arg)
     }
 }
 
+static bool native_search(void)
+{
+    return search_allowed && settings_get()->search;
+}
+
 static char *build_instruction(bool with_home, const reminder_t *unheard, int unheard_count)
 {
     static const char *const DAYS[] = {"neděle", "pondělí", "úterý", "středa", "čtvrtek", "pátek", "sobota"};
     text_t text = {0};
     append(&text, PERSONA, settings_get()->place);
-    append(&text, " %s", search_allowed && settings_get()->search ? SEARCHING : NOT_SEARCHING);
+    append(&text, " %s", native_search() ? SEARCHING : search_configured() ? OWN_SEARCHING : NOT_SEARCHING);
     if (net_time_valid()) {
         time_t now = time(NULL);
         struct tm local;
@@ -533,6 +585,9 @@ static char *build_functions(bool with_home)
 {
     text_t text = {0};
     append(&text, "[%s,%s,%s", DISPLAY_FUNCTION, REMINDER_FUNCTIONS, WEATHER_FUNCTION);
+    if (!native_search() && search_configured()) {
+        append(&text, ",%s", SEARCH_FUNCTION);
+    }
     if (printer_configured()) {
         append(&text, ",%s", PRINTER_FUNCTION);
     }
@@ -594,6 +649,8 @@ static void enter(state_t next)
 
 static void go_idle(void)
 {
+    ack_pending = false;
+    acking = false;
     end_announcement(false);
     uplink_enabled = false;
     wake_set_capture(false);
@@ -612,6 +669,8 @@ static void go_idle(void)
 
 static void fail(const char *message)
 {
+    ack_pending = false;
+    acking = false;
     end_announcement(false);
     uplink_enabled = false;
     wake_set_capture(false);
@@ -620,6 +679,18 @@ static void fail(const char *message)
     live_close();
     enter(STATE_ERROR);
     ui_set_mode(UI_ERROR, message);
+}
+
+static void retry_refused_search(void)
+{
+    if (search_allowed || !settings_get()->search || !net_time_valid()) {
+        return;
+    }
+    uint32_t refused_day = settings_read_number(SEARCH_REFUSED_DAY);
+    if ((uint32_t) (time(NULL) / SECONDS_PER_DAY) > refused_day) {
+        ESP_LOGI(TAG, "trying search again, refused on day %u", (unsigned) refused_day);
+        search_allowed = true;
+    }
 }
 
 static esp_err_t open_connection(void)
@@ -631,11 +702,12 @@ static esp_err_t open_connection(void)
         unheard_count = reminders_unheard(unheard, REMINDERS_MAX);
         xSemaphoreGive(reminder_lock);
     }
+    retry_refused_search();
     bool with_home = ikea_state() == IKEA_READY && ikea_device_count() > 0;
     char *instruction = build_instruction(with_home, unheard, unheard_count);
     char *functions = build_functions(with_home);
     esp_err_t err = instruction && functions
-                        ? live_open(instruction, functions, search_allowed && settings_get()->search)
+                        ? live_open(instruction, functions, native_search())
                         : ESP_ERR_NO_MEM;
     free(instruction);
     free(functions);
@@ -693,6 +765,10 @@ static void start_session(session_kind_t kind)
     session_since = now_ms();
     last_voice = session_since;
     last_activity = session_since;
+    ack_pending = kind == SESSION_VOICE;
+    acking = false;
+    ack_since = session_since;
+    ack_loud = session_since;
     ui_clear_transcript();
     enter(STATE_CONNECTING);
     ui_set_mode(spoken_first ? UI_THINKING : UI_LISTENING, NULL);
@@ -755,6 +831,9 @@ static void on_session_closed(void)
         if (settings_get()->search && search_allowed) {
             search_allowed = false;
             settings_write_number(SEARCH_REFUSED, key_mark);
+            if (net_time_valid()) {
+                settings_write_number(SEARCH_REFUSED_DAY, (uint32_t) (time(NULL) / SECONDS_PER_DAY));
+            }
             ESP_LOGW(TAG, "trying again without search");
             if (open_connection() == ESP_OK) {
                 enter(STATE_CONNECTING);
@@ -998,6 +1077,11 @@ static void on_console(void)
         }
     } else if (strcmp(line, "touch") == 0) {
         app_post(APP_EVENT_TOUCH);
+    } else if (strcmp(line, "wake") == 0) {
+        wake_set_armed(false);
+        wake_clear_capture();
+        wake_set_capture(true);
+        app_post(APP_EVENT_WAKE);
 #if CONFIG_HEAP_TRACING_STANDALONE
     } else if (strcmp(line, "heap") == 0) {
         trace_heap(argument);
@@ -1177,6 +1261,68 @@ static void show_printer(int64_t now)
     }
 }
 
+static void track_noise(void)
+{
+    noise_floor += ((float) wake_microphone_level() - noise_floor) * NOISE_SMOOTHING;
+}
+
+static bool speech_heard(void)
+{
+    int level = wake_microphone_level();
+    return level > VOICE_LEVEL && level > (int) noise_floor + SPEECH_ABOVE_NOISE;
+}
+
+static void acknowledge(int64_t now)
+{
+    if (ack_pending) {
+        if (speech_heard()) {
+            ack_loud = now;
+        }
+        if (heard_any || now - ack_since > ACK_WINDOW_MS) {
+            ESP_LOGI(TAG, "no acknowledgement, the speaker kept talking (background %d)", (int) noise_floor);
+            ack_pending = false;
+            return;
+        }
+        if (now - ack_loud < ACK_QUIET_MS) {
+            return;
+        }
+        ack_pending = false;
+        if (audio_muted() || prefs.volume == 0) {
+            return;
+        }
+        uint32_t choice = esp_random() % (sizeof(ACKNOWLEDGEMENTS) / sizeof(ACKNOWLEDGEMENTS[0]));
+        const clip_t *clip = &ACKNOWLEDGEMENTS[choice];
+        ESP_LOGI(TAG, "acknowledging with phrase %u after %d ms, background %d", (unsigned) choice, (int) (now - ack_since),
+                 (int) noise_floor);
+        wake_set_capture(false);
+        wake_clear_capture();
+        audio_play((const int16_t *) clip->start, (size_t) (clip->end - clip->start) / sizeof(int16_t));
+        audio_finish();
+        acking = true;
+        ack_ended = 0;
+        return;
+    }
+    if (!acking) {
+        return;
+    }
+    if (audio_playing()) {
+        return;
+    }
+    if (!ack_ended) {
+        ack_ended = now;
+        return;
+    }
+    if (now - ack_ended >= ECHO_GUARD_MS) {
+        audio_stats_t stats;
+        audio_take_stats(&stats);
+        acking = false;
+        wake_clear_capture();
+        wake_set_capture(true);
+        last_activity = now;
+        last_voice = now;
+    }
+}
+
 static void supervise(void)
 {
     int64_t now = now_ms();
@@ -1188,9 +1334,11 @@ static void supervise(void)
     }
     switch (state) {
     case STATE_IDLE:
+        track_noise();
         announce_due();
         break;
     case STATE_CONNECTING:
+        acknowledge(now);
         if (now - state_since <= CONNECT_TIMEOUT_MS) {
             break;
         }
@@ -1201,7 +1349,8 @@ static void supervise(void)
         }
         break;
     case STATE_LISTENING:
-        if (wake_microphone_level() > VOICE_LEVEL) {
+        acknowledge(now);
+        if (!acking && wake_microphone_level() > VOICE_LEVEL) {
             last_voice = now;
         }
         if (heard_any && thinking != (now - last_voice > THINKING_AFTER_MS)) {
@@ -1309,7 +1458,8 @@ void app_main(void)
     vTaskPrioritySet(NULL, CONTROL_PRIORITY);
     for (;;) {
         app_event_t event;
-        if (xQueueReceive(events, &event, pdMS_TO_TICKS(100)) == pdTRUE) {
+        int wait = ack_pending || acking ? ACK_LOOP_WAIT_MS : LOOP_WAIT_MS;
+        if (xQueueReceive(events, &event, pdMS_TO_TICKS(wait)) == pdTRUE) {
             handle(event);
         }
         supervise();

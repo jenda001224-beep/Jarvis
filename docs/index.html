@@ -63,7 +63,7 @@
       <input id="place" type="text" value="Praha" maxlength="39">
       <label for="volume">Hlasitost <span id="volume-value">70</span> %</label>
       <input id="volume" type="range" min="30" max="100" step="5" value="70">
-      <label class="check"><input id="search" type="checkbox" checked> Smí hledat na Googlu (zprávy, fakta) — jde jen s placeným tarifem Gemini; počasí funguje i bez něj</label>
+      <label class="check"><input id="search" type="checkbox" checked> Smí hledat na Googlu — jde jen s placeným tarifem Gemini; bez něj hledá přes Tavily, pokud je vyplněný klíč</label>
     </details>
     <p class="hint">
       Údaje neopouštějí tenhle počítač. Zapíšou se kabelem jen do desky.
@@ -73,6 +73,14 @@
   <section class="card">
     <h2><span class="num">3</span>Co má Jarvis znát</h2>
     <p>Všechno v téhle části je nepovinné. Co nevyplníš, to Jarvis prostě neumí.</p>
+
+    <label for="search-key">Hledání na webu — klíč Tavily</label>
+    <input id="search-key" type="password" autocomplete="off" spellcheck="false" maxlength="79" placeholder="tvly-…">
+    <p class="hint">
+      Na <a href="https://app.tavily.com" target="_blank" rel="noopener">app.tavily.com</a> si založ účet (bez karty)
+      a zkopíruj API key. Zdarma je 1 000 hledání měsíčně. Pak se ptej třeba „Jarvisi, v kolik dnes zavírá bazén?“
+      Dotaz, který Jarvis hledá, dostane služba Tavily.
+    </p>
 
     <label for="printer-code">Tiskárna Bambu Lab — přístupový kód</label>
     <input id="printer-code" type="text" autocomplete="off" spellcheck="false" maxlength="15" placeholder="např. 12345678">

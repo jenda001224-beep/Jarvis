@@ -10,6 +10,7 @@ typedef struct {
     char ssid[33];
     char password[65];
     char api_key[96];
+    char search_key[80];
     char model[48];
     char voice[24];
     char place[40];
