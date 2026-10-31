@@ -128,7 +128,9 @@ vyber svůj iPhone a spusť. Doma mluví s displejem přímo po Wi-Fi. Mimo domo
 - **Časovače:** „Jarvisi, dej deset minut na těstoviny.“ Odpočet je na prstenci hodin, v přehledu Dnes i v aplikaci.
 - **Paměť:** všechny rozhovory se ukládají na displej a Jarvis si z nich sám píše poznámky o tobě. Ptej se třeba
   „o čem jsme se bavili minulý týden?“, řekni „zapamatuj si“ nebo „zapomeň na“. Poznámky jdou s každým dotazem do Gemini.
-- **Oznámení:** `python3 tools/jarvis_notify.py "Text"` z jakéhokoli skriptu. Claude Code tak hlásí dokončení delší práce.
+- **Oznámení:** `python3 tools/jarvis_notify.py "Text"` z jakéhokoli skriptu. Claude Code tak hlásí dokončení delší práce
+  i žádost o povolení: displej ji ukáže přes celou obrazovku a Jarvis ji přečte. Po povolení na Macu nebo po dotyku zmizí.
+  V noci a při ztišení svítí slabě a mlčí. Skripty můžou upozornění vyvolat přes `POST /api/alert`.
 - **Sám se ozve:** tisk hotový nebo selhal, čas vyrazit na schůzku, za chvíli začne pršet. V noci a při ztišení jen na displej.
 - **Přehled Dnes:** tlačítko v docku. Časovače, program, úkoly s odškrtáváním, zprávy, budík.
 - **Rádio, podcasty, šum na usínání:** hlasem nebo tlačítkem s notou v docku. Zvuk je mono a jde z malého reproduktoru.

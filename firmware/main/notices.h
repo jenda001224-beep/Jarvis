@@ -22,4 +22,6 @@ int notices_list(notice_t *out, int capacity);
 int notices_unread(void);
 size_t notices_join(char *out, size_t capacity, bool only_spoken, bool mark);
 void notices_mark_all(void);
+void notices_mark(uint32_t id);
+void notices_silence(void);
 void notices_clear(void);

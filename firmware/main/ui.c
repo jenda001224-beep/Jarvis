@@ -35,6 +35,7 @@
 #define HEARD_LIMIT 46
 #define SPOKEN_LIMIT 68
 #define STANDBY_BRIGHTNESS 1
+#define ALERT_DIM_BRIGHTNESS 3
 #define DIGIT_GLYPHS 24
 #define TEXT_GLYPHS 160
 #define ICON_GLYPHS 48
@@ -107,6 +108,8 @@ static volatile float countdown_fraction = -1.0f;
 static lv_obj_t *cover_title;
 static lv_obj_t *cover_big;
 static lv_obj_t *cover_hint;
+static lv_obj_t *cover_text;
+static volatile bool alert_dim;
 static volatile int touch_x;
 static volatile int touch_y;
 static volatile uint32_t touch_until;
@@ -217,7 +220,7 @@ static void set_brightness(int value)
 
 static int awake_brightness(void)
 {
-    return lamp ? LAMP_BRIGHTNESS : prefs.brightness;
+    return lamp ? LAMP_BRIGHTNESS : alert_dim ? ALERT_DIM_BRIGHTNESS : prefs.brightness;
 }
 
 static void append_tail(char *buffer, size_t limit, const char *text)
@@ -598,6 +601,13 @@ static void build(void)
     lv_obj_align(cover_big, LV_ALIGN_CENTER, 0, -4);
     cover_hint = make_label(cover, font_caption, COLOR_MUTED, 2, "");
     lv_obj_align(cover_hint, LV_ALIGN_BOTTOM_MID, 0, -120);
+    cover_text = make_label(cover, font_body, COLOR_TEXT, 0, "");
+    lv_obj_set_width(cover_text, 380);
+    lv_label_set_long_mode(cover_text, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_style_text_align(cover_text, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_line_space(cover_text, 6, 0);
+    lv_obj_align(cover_text, LV_ALIGN_CENTER, 0, 0);
+    set_visible(cover_text, false);
 
     lv_indev_t *injected = lv_indev_create();
     lv_indev_set_type(injected, LV_INDEV_TYPE_POINTER);
@@ -739,6 +749,8 @@ static void show_cover(const char *title, const char *big, const char *hint)
     bsp_display_lock(0);
     covered = true;
     quiesce();
+    set_visible(cover_text, false);
+    set_visible(cover_big, true);
     lv_label_set_text(cover_title, title);
     lv_label_set_text(cover_big, big);
     lv_label_set_text(cover_hint, hint);
@@ -770,6 +782,33 @@ void ui_show_alarm(const char *clock_text, const char *label)
         return;
     }
     show_cover(label && label[0] ? label : "BUDÍK", clock_text, "DOTKNI SE PRO VYPNUTÍ");
+}
+
+void ui_show_alert(const char *title, const char *text, bool dim)
+{
+    if (!title) {
+        alert_dim = false;
+        hide_cover();
+        return;
+    }
+    bsp_display_lock(0);
+    covered = true;
+    alert_dim = dim;
+    quiesce();
+    set_visible(cover_big, false);
+    set_visible(cover_text, true);
+    lv_label_set_text(cover_title, title);
+    lv_label_set_text(cover_text, text);
+    lv_label_set_text(cover_hint, "DOTKNI SE PRO ZAVŘENÍ");
+    lv_obj_align(cover_title, LV_ALIGN_TOP_MID, 0, 96);
+    lv_obj_align(cover_text, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_align(cover_hint, LV_ALIGN_BOTTOM_MID, 0, -96);
+    set_visible(cover, true);
+    lv_display_trigger_activity(NULL);
+    wake_up();
+    set_brightness(awake_brightness());
+    lv_refr_now(NULL);
+    bsp_display_unlock();
 }
 
 void ui_show_update(int percent)

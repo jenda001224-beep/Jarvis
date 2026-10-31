@@ -462,6 +462,16 @@ static void test_notices(void)
     assert(notices_join(joined, 5, false, false) == 0);
     notices_mark_all();
     assert(notices_unread() == 0);
+    notices_clear();
+    uint32_t one = notices_add(1500, "x", "jedna", true);
+    uint32_t two = notices_add(1500, "x", "dvě", true);
+    notices_mark(one);
+    assert(notices_unread() == 1);
+    assert(notices_join(joined, sizeof(joined), true, false) > 0 && strcmp(joined, "dvě") == 0);
+    notices_silence();
+    assert(notices_join(joined, sizeof(joined), true, false) == 0 && notices_unread() == 1);
+    assert(two != one);
+    notices_mark_all();
     for (int i = 0; i < NOTICES_MAX + 3; i++) {
         char text[32];
         snprintf(text, sizeof(text), "zpráva %d", i);

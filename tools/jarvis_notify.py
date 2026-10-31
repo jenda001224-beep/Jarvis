@@ -27,12 +27,12 @@ def addresses():
     return found
 
 
-def send(text, source, speak):
+def post(path, fields):
     token = open(TOKEN_FILE).read().strip()
-    body = json.dumps({"text": text, "source": source, "speak": speak}).encode()
+    body = json.dumps(fields).encode()
     for address in addresses():
         request = urllib.request.Request(
-            f"http://{address}/api/notify",
+            f"http://{address}{path}",
             data=body,
             method="POST",
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
@@ -42,10 +42,23 @@ def send(text, source, speak):
                 if reply.status == 200:
                     with open(ADDRESS_FILE, "w") as stored:
                         stored.write(address)
-                    return True
+                    return json.loads(reply.read() or b"{}")
         except OSError:
             continue
-    return False
+    return None
+
+
+def send(text, source, speak):
+    return post("/api/notify", {"text": text, "source": source, "speak": speak}) is not None
+
+
+def alert(text, title, seconds, speak=True):
+    reply = post("/api/alert", {"text": text, "title": title, "seconds": seconds, "source": "claude", "speak": speak})
+    return reply.get("id") if reply else None
+
+
+def clear_alert(notice):
+    post("/api/alert/clear", {"id": notice})
 
 
 def main():

@@ -107,6 +107,22 @@ void notices_mark_all(void)
     }
 }
 
+void notices_mark(uint32_t id)
+{
+    for (int i = 0; i < count; i++) {
+        if (items[i].id == id) {
+            items[i].read = true;
+        }
+    }
+}
+
+void notices_silence(void)
+{
+    for (int i = 0; i < count; i++) {
+        items[i].speak = false;
+    }
+}
+
 void notices_clear(void)
 {
     count = 0;

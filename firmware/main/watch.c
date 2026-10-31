@@ -115,6 +115,26 @@ void watch_mark_read(void)
     xSemaphoreGive(lock);
 }
 
+void watch_mark_one(uint32_t id)
+{
+    if (!lock) {
+        return;
+    }
+    xSemaphoreTake(lock, portMAX_DELAY);
+    notices_mark(id);
+    xSemaphoreGive(lock);
+}
+
+void watch_silence(void)
+{
+    if (!lock) {
+        return;
+    }
+    xSemaphoreTake(lock, portMAX_DELAY);
+    notices_silence();
+    xSemaphoreGive(lock);
+}
+
 void watch_set_away(bool value)
 {
     away = value;

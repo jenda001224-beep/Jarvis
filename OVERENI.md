@@ -13,6 +13,8 @@ Každé tvrzení, na kterém firmware stojí, a z čeho vychází. Stav k 17. 10
 | Výpis a konzole po síti | na desce, bez restartu, ztlumení přežije |
 | Budík a časovač bez Wi-Fi | opravená podmínka, přímo **nezkoušeno** |
 | Noční hlasitost | na desce podle výpisu; poslechem **neověřeno** |
+| Žádost o povolení z Claude Code | hook se simulovanými událostmi na desce, přepis řeči ztlumeně, zavření dotykem i po provedení nástroje; skutečná událost z Claude Code **zatím neviděna**, že se hook spouští i v desktopové aplikaci, plyne z kódu CLI 2.1.309 (vlastní test nešel, CLI ze shellu není přihlášené) |
+| Vzhled upozornění na displeji | **neviděno** |
 
 ## Verze 2.6 (31. 10. 2026)
 

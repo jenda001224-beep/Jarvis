@@ -82,6 +82,9 @@
 #define ALARM_RING_LIMIT_MS (10 * 60 * 1000)
 #define TIMER_RING_LIMIT_MS (2 * 60 * 1000)
 #define MEMORY_LINES 60
+#define ALERT_TITLE 48
+#define ALERT_LONGEST_SECONDS (30 * 60)
+#define ALERT_DEFAULT_SECONDS (5 * 60)
 #define CHAT_LIMIT 1000
 #define QUIET_SETTING "quiet_until"
 #define QUIET_LONGEST_MINUTES (24 * 60)
@@ -1138,12 +1141,17 @@ static char *chat_tool(const char *name, const char *args_json)
 static void speak_notices(void)
 {
     char joined[sizeof(ANNOUNCEMENT) + CONSOLE_LINE - sizeof(NOTICE_PROMPT)];
-    if (state != STATE_IDLE || ringing || quiet_until || ui_night() || ui_lamp() || !net_connected() || watch_away()) {
+    if (quiet_until || ui_night() || watch_away()) {
+        watch_silence();
+        return;
+    }
+    if (state != STATE_IDLE || ringing || ui_lamp() || !net_connected()) {
         return;
     }
     if (watch_take_spoken(joined, sizeof(joined)) > 0) {
         snprintf(opening, sizeof(opening), NOTICE_PROMPT, joined);
         start_session(SESSION_TEXT);
+        conversation_over = true;
     }
 }
 
@@ -1968,6 +1976,75 @@ static void api_media(api_call_t *call, const cJSON *body)
     call->reply = json_reply(media_json());
 }
 
+static struct {
+    uint32_t id;
+    int64_t until;
+    bool shown;
+    char title[ALERT_TITLE];
+    char text[NOTICE_TEXT];
+} alert;
+
+static void end_alert(void)
+{
+    if (alert.shown) {
+        ui_show_alert(NULL, NULL, false);
+    }
+    alert.id = 0;
+    alert.shown = false;
+}
+
+static void watch_alert(int64_t now)
+{
+    if (!alert.id) {
+        return;
+    }
+    if (now >= alert.until) {
+        watch_mark_one(alert.id);
+        end_alert();
+        return;
+    }
+    bool blocked = ringing || pairing_code[0] || ui_lamp() || state == STATE_UPDATING;
+    if (blocked) {
+        alert.shown = false;
+    } else if (!alert.shown) {
+        alert.shown = true;
+        ui_show_alert(alert.title, alert.text, ui_night());
+    }
+}
+
+static void api_alert(api_call_t *call, const char *path, const cJSON *body)
+{
+    const cJSON *text = cJSON_GetObjectItemCaseSensitive(body, "text");
+    const cJSON *id = cJSON_GetObjectItemCaseSensitive(body, "id");
+    if (strcmp(path, "/api/alert/clear") == 0) {
+        if (cJSON_IsNumber(id) && (uint32_t) id->valuedouble == alert.id) {
+            end_alert();
+        }
+        if (cJSON_IsNumber(id)) {
+            watch_mark_one((uint32_t) id->valuedouble);
+        }
+        call->reply = json_reply(cJSON_CreateObject());
+        return;
+    }
+    if (strcmp(path, "/api/alert") != 0 || call->method != API_POST || !cJSON_IsString(text) || !text->valuestring[0]) {
+        api_error(call, 400, "text missing");
+        return;
+    }
+    const cJSON *title = cJSON_GetObjectItemCaseSensitive(body, "title");
+    const cJSON *source = cJSON_GetObjectItemCaseSensitive(body, "source");
+    const cJSON *speak = cJSON_GetObjectItemCaseSensitive(body, "speak");
+    const cJSON *seconds = cJSON_GetObjectItemCaseSensitive(body, "seconds");
+    int lasting = cJSON_IsNumber(seconds) && seconds->valueint > 0 && seconds->valueint <= ALERT_LONGEST_SECONDS ? seconds->valueint : ALERT_DEFAULT_SECONDS;
+    alert.id = watch_notice(cJSON_IsString(source) ? source->valuestring : "mac", text->valuestring, !cJSON_IsFalse(speak));
+    alert.until = now_ms() + (int64_t) lasting * 1000;
+    alert.shown = false;
+    strlcpy(alert.title, cJSON_IsString(title) ? title->valuestring : "UPOZORNĚNÍ", sizeof(alert.title));
+    strlcpy(alert.text, text->valuestring, sizeof(alert.text));
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddNumberToObject(root, "id", alert.id);
+    call->reply = json_reply(root);
+}
+
 static void api_notices(api_call_t *call, const char *path, const cJSON *body)
 {
     if (strcmp(path, "/api/notify") == 0) {
@@ -2444,6 +2521,8 @@ static void handle_api(api_call_t *call)
         api_reminders(call, path[14] == '/' ? (uint32_t) strtoul(path + 15, NULL, 10) : 0);
     } else if (strncmp(path, "/api/memory", 11) == 0) {
         api_memory(call, path, body);
+    } else if (strncmp(path, "/api/alert", 10) == 0) {
+        api_alert(call, path, body);
     } else if (strncmp(path, "/api/notices", 12) == 0 || strcmp(path, "/api/notify") == 0) {
         api_notices(call, path, body);
     } else if (strcmp(path, "/api/arrived") == 0 && call->method == API_POST) {
@@ -2546,6 +2625,8 @@ static void handle(app_event_t event)
             stop_ringing(true);
         } else if (pairing_code[0]) {
             stop_pairing();
+        } else if (alert.shown) {
+            end_alert();
         } else if (ui_lamp()) {
             ui_set_lamp(false);
         } else if (state == STATE_IDLE) {
@@ -2771,6 +2852,7 @@ static void supervise(void)
     show_printer(now);
     update_home(now);
     watch_update();
+    watch_alert(now);
     cloud_set_idle(state == STATE_IDLE);
     recall_tick(state == STATE_IDLE && !ringing);
     watch_quiet();
