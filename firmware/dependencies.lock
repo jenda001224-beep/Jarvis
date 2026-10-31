@@ -30,7 +30,7 @@ dependencies:
       type: service
     version: 0.8.0
   espressif/esp-dl:
-    component_hash: 3148b2692a2943d7e35401dc10a181b6ba83515ec70ef51499ac5d2593eef3e2
+    component_hash: 3608ac32875cb7fa93805fba2372619bde3d8a02cee47c622cf5e91a1308fe92
     dependencies:
     - name: espressif/dl_fft
       registry_url: https://components.espressif.com
@@ -56,7 +56,7 @@ dependencies:
     - esp32s2
     - esp32s3
     - esp32s31
-    version: 3.3.13
+    version: 3.3.14
   espressif/esp-sr:
     component_hash: f828073fa761cfa88c6d97e2c664d233b29c6d8b77e1a35b2fbe306fc5dc1108
     dependencies:
@@ -85,6 +85,16 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 2.6.0
+  espressif/esp_audio_codec:
+    component_hash: a5b9275af74247e3ce536d16a7080e4d77207a185b63e1bea368eb4d57176c2b
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.4'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 2.6.2
   espressif/esp_codec_dev:
     component_hash: df70f10af8d7b922add7b9d07372c9c97ab356e58d72b7a892050227c2d44348
     dependencies:
@@ -138,7 +148,7 @@ dependencies:
       type: service
     version: 1.0.1~1
   espressif/esp_lcd_st7701:
-    component_hash: 924f346e36da39aaa38177e21bd360b5442abc792338fb64ad1e644481255898
+    component_hash: 5ccac8c0bcc58273df2c149aa40e607ebaac70bb53f5bc40c4d07e2e3f667fee
     dependencies:
     - name: espressif/cmake_utilities
       registry_url: https://components.espressif.com
@@ -154,7 +164,7 @@ dependencies:
     - esp32s3
     - esp32s31
     - esp32p4
-    version: 2.0.2~2
+    version: 2.0.3
   espressif/esp_lcd_touch:
     component_hash: 3f85a7d95af876f1a6ecca8eb90a81614890d0f03a038390804e5a77e2caf862
     dependencies:
@@ -285,11 +295,12 @@ dependencies:
     version: 2.0.0
 direct_dependencies:
 - espressif/esp-sr
+- espressif/esp_audio_codec
 - espressif/esp_websocket_client
 - espressif/mdns
 - idf
 - lvgl/lvgl
 - waveshare/esp32_s3_touch_lcd_4b
-manifest_hash: 06ddb67fb7ed203cd78ef8682fcb57c573afea2ad7f12a7de6d63a0abe7fe4b2
+manifest_hash: 92d1da09093a11d9bca05f8e1d0995fda056ecbecad41e3ad92b0f24f56d6058
 target: esp32s3
 version: 2.0.0

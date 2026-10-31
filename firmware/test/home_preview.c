@@ -100,6 +100,15 @@ static void action_pair(void) { printf("action: pair\n"); }
 static void action_todo(uint32_t id, bool done) { printf("action: todo %u %s\n", (unsigned) id, done ? "done" : "open"); }
 static void action_timer_add(int seconds) { printf("action: timer %d s\n", seconds); }
 static void action_timer_cancel(uint32_t id) { printf("action: cancel timer %u\n", (unsigned) id); }
+static void action_seen(void) { printf("action: notices seen\n"); }
+static void action_station(int index) { printf("action: station %d\n", index); }
+static void action_noise(int kind) { printf("action: noise %d\n", kind); }
+static void action_media_stop(void) { printf("action: stop media\n"); }
+static const char *preview_station(int index)
+{
+    static const char *const NAMES[] = {"Radiožurnál", "Dvojka", "Vltava", "Evropa 2"};
+    return NAMES[index];
+}
 
 static void add(home_data_t *data, const char *id, const char *name, const char *room, home_kind_t kind, bool on,
                 int level, bool color)
@@ -144,7 +153,8 @@ int main(int argc, char **argv)
         .icon_large = FONT("icons.ttf", 40),
     };
     home_actions_t actions = {action_power, action_level, action_white, action_hue, action_talk, action_lamp,
-                              action_prefs, action_pair, action_todo, action_timer_add, action_timer_cancel};
+                              action_prefs, action_pair, action_todo, action_timer_add, action_timer_cancel,
+                              action_seen, action_station, action_noise, action_media_stop, preview_station, 4};
     lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(0), 0);
     home_create(lv_screen_active(), &faces, &actions);
 
@@ -166,6 +176,12 @@ int main(int argc, char **argv)
     data.todo_items[0] = (home_todo_t) {.id = 1, .text = "Sbalit si věci na výlet a nezapomenout nabíječku od foťáku"};
     data.todo_items[1] = (home_todo_t) {.id = 2, .text = "Koupit mléko"};
     data.todo_items[2] = (home_todo_t) {.id = 3, .done = true, .text = "Zavolat doktorovi"};
+    snprintf(data.playing, sizeof(data.playing), "Radiožurnál");
+    data.unread = 2;
+    data.notice_count = 2;
+    data.notices[0] = (home_notice_t) {.when = "8:20", .text = "Asi za 45 minut začne pršet."};
+    data.notices[1] = (home_notice_t) {.when = "7:40", .text = "Claude dokončil práci."};
+    snprintf(data.quiet, sizeof(data.quiet), "Ticho do 9:26");
     data.agenda_count = 2;
     data.agenda[0] = (home_event_t) {.when = "11:00", .title = "Doktor"};
     data.agenda[1] = (home_event_t) {.when = "celý den", .title = "Výlet"};
@@ -191,6 +207,15 @@ int main(int argc, char **argv)
     save(folder, "today");
     static const touch_t close_today[] = {{1000, 46, 46, true}, {1060, 46, 46, false}};
     script = close_today;
+    script_length = 2;
+    run(600);
+    static const touch_t open_media[] = {{1500, 356, 440, true}, {1560, 356, 440, false}};
+    script = open_media;
+    script_length = 2;
+    run(600);
+    save(folder, "media");
+    static const touch_t close_media[] = {{2000, 46, 46, true}, {2060, 46, 46, false}};
+    script = close_media;
     script_length = 2;
     run(600);
     clock_ms = 0;

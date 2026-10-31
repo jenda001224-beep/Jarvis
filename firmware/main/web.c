@@ -36,6 +36,11 @@ static void user_agent(char *out, size_t capacity)
 
 bool web_stream(const char *url, web_sink_t sink, void *context)
 {
+    return web_stream_from(url, 0, sink, context);
+}
+
+bool web_stream_from(const char *url, size_t offset, web_sink_t sink, void *context)
+{
     char agent[128];
     user_agent(agent, sizeof(agent));
     const esp_http_client_config_t config = {
@@ -49,6 +54,12 @@ bool web_stream(const char *url, web_sink_t sink, void *context)
     esp_http_client_handle_t client = esp_http_client_init(&config);
     char *chunk = heap_caps_malloc(CHUNK, MALLOC_CAP_SPIRAM);
     bool complete = false;
+    size_t skip = 0;
+    if (client && offset > 0) {
+        char range[32];
+        snprintf(range, sizeof(range), "bytes=%u-", (unsigned) offset);
+        esp_http_client_set_header(client, "Range", range);
+    }
     for (int hop = 0; client && chunk && hop <= REDIRECT_LIMIT; hop++) {
         if (esp_http_client_open(client, 0) != ESP_OK || esp_http_client_fetch_headers(client) < 0) {
             ESP_LOGW(TAG, "no answer from the server");
@@ -62,10 +73,11 @@ bool web_stream(const char *url, web_sink_t sink, void *context)
             esp_http_client_close(client);
             continue;
         }
-        if (status != 200) {
+        if (status != 200 && !(status == 206 && offset > 0)) {
             ESP_LOGW(TAG, "server answered %d", status);
             break;
         }
+        skip = status == 200 ? offset : 0;
         for (;;) {
             int received = esp_http_client_read(client, chunk, CHUNK);
             if (received < 0) {
@@ -75,7 +87,9 @@ bool web_stream(const char *url, web_sink_t sink, void *context)
                 complete = esp_http_client_is_complete_data_received(client);
                 break;
             }
-            if (!sink(context, chunk, (size_t) received)) {
+            size_t dropped = skip < (size_t) received ? skip : (size_t) received;
+            skip -= dropped;
+            if ((size_t) received > dropped && !sink(context, chunk + dropped, (size_t) received - dropped)) {
                 break;
             }
         }

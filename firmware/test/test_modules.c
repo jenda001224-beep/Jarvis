@@ -14,7 +14,11 @@
 #include "todos.h"
 #include "alarms.h"
 #include "countdown.h"
+#include "dav.h"
 #include "gemini.h"
+#include "notices.h"
+#include "sound.h"
+#include <math.h>
 
 static const char FULL_REPORT[] =
     "{\"print\":{\"bed_target_temper\":60.0,\"bed_temper\":59.6,\"command\":\"push_status\",\"fail_reason\":\"0\","
@@ -436,6 +440,292 @@ static void test_gemini(void)
     assert(!gemini_text_answer("nonsense", 8));
 }
 
+static void test_notices(void)
+{
+    notices_clear();
+    assert(notices_add(1000, "mac", "", true) == 0);
+    uint32_t first = notices_add(1000, "mac", "Claude dokončil\npráci", true);
+    assert(first && notices_add(1030, "mac", "Claude dokončil\npráci", true) == first);
+    uint32_t second = notices_add(1100, "tiskárna", "Tisk je hotový", false);
+    assert(second != first && notices_unread() == 2);
+    notice_t list[NOTICES_MAX];
+    assert(notices_list(list, NOTICES_MAX) == 2 && list[0].id == second && list[1].id == first);
+    assert(strcmp(list[1].text, "Claude dokončil práci") == 0 && !list[0].speak && list[1].speak);
+    char joined[256];
+    assert(notices_join(joined, sizeof(joined), false, false) > 0);
+    assert(strcmp(joined, "Claude dokončil práci; Tisk je hotový") == 0 && notices_unread() == 2);
+    assert(notices_join(joined, sizeof(joined), true, true) > 0 && strcmp(joined, "Claude dokončil práci") == 0);
+    assert(notices_unread() == 1);
+    assert(notices_join(joined, sizeof(joined), true, true) == 0 && joined[0] == 0);
+    assert(notices_join(joined, 5, false, false) == 0);
+    notices_mark_all();
+    assert(notices_unread() == 0);
+    for (int i = 0; i < NOTICES_MAX + 3; i++) {
+        char text[32];
+        snprintf(text, sizeof(text), "zpráva %d", i);
+        assert(notices_add(2000 + i * 100, "x", text, true));
+    }
+    assert(notices_list(list, NOTICES_MAX) == NOTICES_MAX && strcmp(list[0].text, "zpráva 18") == 0);
+    assert(strcmp(list[NOTICES_MAX - 1].text, "zpráva 3") == 0);
+    char longer[NOTICE_TEXT * 2];
+    size_t size = 0;
+    while (size + 2 < sizeof(longer) - 1) {
+        longer[size++] = (char) 0xC5;
+        longer[size++] = (char) 0xA1;
+    }
+    longer[size] = 0;
+    assert(notices_add(99999, "x", longer, true));
+    notices_list(list, 1);
+    assert(strlen(list[0].text) % 2 == 0 && strlen(list[0].text) < NOTICE_TEXT);
+    notices_clear();
+}
+
+static void test_printer_events(void)
+{
+    assert(bambu_event("RUNNING", "FINISH") == BAMBU_EVENT_FINISHED);
+    assert(bambu_event("PAUSE", "FINISH") == BAMBU_EVENT_FINISHED);
+    assert(bambu_event("RUNNING", "FAILED") == BAMBU_EVENT_FAILED);
+    assert(bambu_event("PREPARE", "FAILED") == BAMBU_EVENT_FAILED);
+    assert(bambu_event("RUNNING", "PAUSE") == BAMBU_EVENT_PAUSED);
+    assert(bambu_event("", "FINISH") == BAMBU_EVENT_NONE);
+    assert(bambu_event("FINISH", "FINISH") == BAMBU_EVENT_NONE);
+    assert(bambu_event("IDLE", "RUNNING") == BAMBU_EVENT_NONE);
+    assert(bambu_event("FINISH", "FAILED") == BAMBU_EVENT_NONE);
+}
+
+static void test_rain_and_sun(void)
+{
+    static const char DRY[] = "{\"minutely_15\":{\"time\":[\"a\"],\"precipitation\":[0,0,0.02,0]}}";
+    static const char SOON[] = "{\"minutely_15\":{\"precipitation\":[0,0,0.4,1.0]}}";
+    static const char NOW[] = "{\"minutely_15\":{\"precipitation\":[0.2,0.1]}}";
+    assert(meteo_rain_in(DRY, strlen(DRY)) == -1);
+    assert(meteo_rain_in(SOON, strlen(SOON)) == 30);
+    assert(meteo_rain_in(NOW, strlen(NOW)) == 0);
+    assert(meteo_rain_in("{}", 2) == -1);
+    static const char DAY[] = "{\"daily\":{\"sunrise\":[\"2026-10-31T06:47\"],\"sunset\":[\"2026-10-31T16:42\"]}}";
+    int rise = 0;
+    int set = 0;
+    assert(meteo_sun(DAY, strlen(DAY), &rise, &set) && rise == 407 && set == 1002);
+    assert(!meteo_sun("{\"daily\":{\"sunrise\":[\"bad\"]}}", 29, &rise, &set));
+}
+
+static char dav_collected[1024];
+static int dav_ends;
+
+static void dav_on_data(void *context, const char *text, size_t length)
+{
+    (void) context;
+    strncat(dav_collected, text, length);
+}
+
+static void dav_on_end(void *context)
+{
+    (void) context;
+    dav_ends++;
+    strcat(dav_collected, "|");
+}
+
+static void test_caldav(void)
+{
+    static const char PRINCIPAL[] =
+        "<?xml version='1.0' encoding='UTF-8'?><multistatus xmlns='DAV:'><response><href>/</href><propstat><prop>"
+        "<current-user-principal><href>/123456/principal/</href></current-user-principal></prop>"
+        "<status>HTTP/1.1 200 OK</status></propstat></response></multistatus>";
+    char href[DAV_HREF];
+    assert(dav_find_href(PRINCIPAL, strlen(PRINCIPAL), "current-user-principal", href, sizeof(href)));
+    assert(strcmp(href, "/123456/principal/") == 0);
+    assert(!dav_find_href(PRINCIPAL, strlen(PRINCIPAL), "calendar-home-set", href, sizeof(href)));
+    static const char HOME[] =
+        "<D:multistatus xmlns:D=\"DAV:\"><D:response><D:href>/123456/principal/</D:href><D:propstat><D:prop>"
+        "<C:calendar-home-set xmlns:C=\"urn:ietf:params:xml:ns:caldav\">\n  <D:href>https://p42-caldav.icloud.com:443/123456/calendars/?a=1&amp;b=2</D:href>\n"
+        "</C:calendar-home-set></D:prop></D:propstat></D:response></D:multistatus>";
+    assert(dav_find_href(HOME, strlen(HOME), "calendar-home-set", href, sizeof(href)));
+    assert(strcmp(href, "https://p42-caldav.icloud.com:443/123456/calendars/?a=1&b=2") == 0);
+    char origin[64];
+    dav_origin(href, origin, sizeof(origin));
+    assert(strcmp(origin, "https://p42-caldav.icloud.com:443") == 0);
+    char url[256];
+    dav_join_url(origin, "/123456/calendars/home/", url, sizeof(url));
+    assert(strcmp(url, "https://p42-caldav.icloud.com:443/123456/calendars/home/") == 0);
+    dav_join_url(origin, "https://other.example/x/", url, sizeof(url));
+    assert(strcmp(url, "https://other.example/x/") == 0);
+
+    static const char LIST[] =
+        "<multistatus xmlns=\"DAV:\">"
+        "<response><href>/123456/calendars/</href><propstat><prop><resourcetype><collection/></resourcetype></prop></propstat></response>"
+        "<response xmlns=\"DAV:\"><href>/123456/calendars/home/</href><propstat><prop><displayname>Domů &amp; rodina</displayname>"
+        "<resourcetype xmlns=\"DAV:\"><collection/><calendar xmlns=\"urn:ietf:params:xml:ns:caldav\"/></resourcetype>"
+        "<supported-calendar-component-set xmlns=\"urn:ietf:params:xml:ns:caldav\"><comp name=\"VEVENT\"/></supported-calendar-component-set>"
+        "</prop></propstat></response>"
+        "<response><href>/123456/calendars/tasks/</href><propstat><prop><displayname>Připomínky</displayname>"
+        "<resourcetype><collection/><calendar xmlns=\"urn:ietf:params:xml:ns:caldav\"/></resourcetype>"
+        "<supported-calendar-component-set xmlns=\"urn:ietf:params:xml:ns:caldav\"><comp name=\"VTODO\"/></supported-calendar-component-set>"
+        "</prop></propstat></response>"
+        "<response><href>/123456/calendars/inbox/</href><propstat><prop><resourcetype><collection/><schedule-inbox xmlns=\"urn:ietf:params:xml:ns:caldav\"/></resourcetype></prop></propstat></response>"
+        "<response><href>/123456/calendars/work/</href><propstat><prop><displayname>Práce</displayname>"
+        "<resourcetype><collection/><C:calendar xmlns:C=\"urn:ietf:params:xml:ns:caldav\"/></resourcetype></prop></propstat></response>"
+        "</multistatus>";
+    dav_calendar_t calendars[4];
+    assert(dav_parse_calendars(LIST, strlen(LIST), calendars, 4) == 2);
+    assert(strcmp(calendars[0].name, "Domů & rodina") == 0 && strcmp(calendars[0].href, "/123456/calendars/home/") == 0);
+    assert(strcmp(calendars[1].name, "Práce") == 0);
+    assert(dav_parse_calendars(LIST, strlen(LIST), calendars, 1) == 1);
+
+    static const char REPORT[] =
+        "<multistatus xmlns=\"DAV:\"><response><href>/a.ics</href><propstat><prop>"
+        "<calendar-data xmlns=\"urn:ietf:params:xml:ns:caldav\">BEGIN:VEVENT&#13;\nSUMMARY:A &amp; B &lt;x&gt; &#x10D;</calendar-data>"
+        "</prop></propstat></response><response><href>/b.ics</href><propstat><prop>"
+        "<C:calendar-data xmlns:C=\"urn:ietf:params:xml:ns:caldav\"><![CDATA[SUMMARY:<raw> ]] ok & done]]></C:calendar-data>"
+        "<C:calendar-data/></prop></propstat></response></multistatus>";
+    const char *expected = "BEGIN:VEVENT\r\nSUMMARY:A & B <x> č|SUMMARY:<raw> ]] ok & done|";
+    for (size_t step = 1; step <= 7; step += 3) {
+        dav_collected[0] = 0;
+        dav_ends = 0;
+        static dav_stream_t stream;
+        dav_stream_begin(&stream, dav_on_data, dav_on_end, NULL);
+        for (size_t at = 0; at < sizeof(REPORT) - 1; at += step) {
+            size_t size = sizeof(REPORT) - 1 - at < step ? sizeof(REPORT) - 1 - at : step;
+            dav_stream_feed(&stream, REPORT + at, size);
+        }
+        dav_stream_finish(&stream);
+        assert(strcmp(dav_collected, expected) == 0 && dav_ends == 2);
+    }
+
+    char *query = dav_query_body(1793404800, 1794614400);
+    assert(strstr(query, "start=\"20261031T000000Z\"") && strstr(query, "end=\"20261114T000000Z\""));
+    free(query);
+
+    setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1);
+    tzset();
+    dav_event_t event = {
+        .uid = "abc-jarvis",
+        .title = "Doktor, kontrola; zuby \\ a ještě jeden hodně dlouhý název události, aby se musel řádek zalomit přesně podle pravidel",
+        .place = "Olgy Havlové 2874/2, Praha",
+        .start = 1793955600,
+        .end = 1793959200,
+        .stamp = 1793404800,
+    };
+    char *text = dav_build_event(&event);
+    assert(strstr(text, "BEGIN:VCALENDAR\r\nVERSION:2.0\r\n"));
+    assert(strstr(text, "UID:abc-jarvis\r\n") && strstr(text, "DTSTAMP:20261031T000000Z\r\n"));
+    assert(strstr(text, "DTSTART:20261106T090000Z\r\n") && strstr(text, "DTEND:20261106T100000Z\r\n"));
+    assert(strstr(text, "SUMMARY:Doktor\\, kontrola\\; zuby \\\\ a"));
+    assert(strstr(text, "LOCATION:Olgy Havlové 2874/2\\, Praha\r\n") && strstr(text, "END:VCALENDAR\r\n"));
+    size_t octets = 0;
+    for (const char *c = text; *c; c++) {
+        if (*c == '\r') {
+            assert(c[1] == '\n' && octets <= 75);
+            octets = 0;
+            c++;
+        } else {
+            octets++;
+        }
+    }
+    assert(strstr(text, "\r\n "));
+    free(text);
+    event.all_day = true;
+    event.place = NULL;
+    event.start = 1793401200;
+    event.end = 1793487600;
+    text = dav_build_event(&event);
+    assert(strstr(text, "DTSTART;VALUE=DATE:20261031\r\n") && strstr(text, "DTEND;VALUE=DATE:20261101\r\n") && !strstr(text, "LOCATION"));
+    free(text);
+    unsetenv("TZ");
+    tzset();
+}
+
+static double rms_of(const int16_t *pcm, size_t count)
+{
+    double sum = 0;
+    for (size_t i = 0; i < count; i++) {
+        sum += (double) pcm[i] * pcm[i];
+    }
+    return sqrt(sum / (double) count);
+}
+
+static void test_sound(void)
+{
+    enum { INPUT = 44100 };
+    static int16_t in[INPUT];
+    static int16_t out[INPUT];
+    for (int i = 0; i < INPUT; i++) {
+        in[i] = (int16_t) (10000.0 * sin(2.0 * 3.14159265358979 * 1000.0 * i / 44100.0));
+    }
+    rate_t rate;
+    rate_init(&rate, 44100, 24000);
+    size_t produced = 0;
+    for (int at = 0; at < INPUT; at += 1152) {
+        int take = INPUT - at < 1152 ? INPUT - at : 1152;
+        assert(rate_capacity(&rate, 1152) >= 627);
+        produced += rate_process(&rate, in + at, (size_t) take, out + produced, (size_t) (INPUT - produced));
+    }
+    assert(produced >= 23998 && produced <= 24002);
+    double level = rms_of(out + 1000, produced - 1000);
+    assert(level > 6000 && level < 7500);
+    double crossings = 0;
+    for (size_t i = 1001; i < produced; i++) {
+        crossings += (out[i - 1] < 0) != (out[i] < 0);
+    }
+    assert(crossings > 1900 && crossings < 2020);
+
+    for (int i = 0; i < INPUT; i++) {
+        in[i] = (int16_t) (10000.0 * sin(2.0 * 3.14159265358979 * 18000.0 * i / 44100.0));
+    }
+    rate_init(&rate, 44100, 24000);
+    produced = rate_process(&rate, in, INPUT, out, INPUT);
+    assert(rms_of(out + 1000, produced - 1000) < 1500);
+
+    rate_init(&rate, 24000, 24000);
+    assert(rate_process(&rate, in, 1000, out, INPUT) == 1000);
+    rate_init(&rate, 16000, 24000);
+    size_t raised = rate_process(&rate, in, 1600, out, INPUT);
+    assert(raised >= 2398 && raised <= 2402);
+
+    int16_t stereo[6] = {100, 300, -200, -400, 32000, 32000};
+    sound_to_mono(stereo, 3, 2);
+    assert(stereo[0] == 200 && stereo[1] == -300 && stereo[2] == 32000);
+
+    static int16_t noise[48000];
+    noise_t state;
+    for (int kind = NOISE_WHITE; kind <= NOISE_BROWN; kind++) {
+        noise_init(&state, 12345);
+        noise_fill(&state, (noise_kind_t) kind, noise, 48000);
+        noise_fill(&state, (noise_kind_t) kind, noise, 48000);
+        double loud = rms_of(noise, 48000);
+        assert(loud > 800 && loud < 12000);
+        double steps = 0;
+        for (int i = 1; i < 48000; i++) {
+            steps += fabs((double) noise[i] - noise[i - 1]);
+        }
+        double roughness = steps / 48000.0 / loud;
+        assert(kind == NOISE_WHITE ? roughness > 1.0 : kind == NOISE_PINK ? roughness > 0.2 && roughness < 1.4 : roughness < 0.3);
+    }
+
+    static const uint8_t MP3[] = {0, 0, 0xFF, 0xFB, 0x90, 0x64};
+    static const uint8_t AAC[] = {0xFF, 0xF1, 0x50, 0x80};
+    static const uint8_t TAGGED[] = {'I', 'D', '3', 4};
+    static const uint8_t JUNK[] = {'<', 'h', 't', 'm', 'l', '>'};
+    assert(sound_sniff(MP3, sizeof(MP3)) == SOUND_MP3 && sound_sniff(AAC, sizeof(AAC)) == SOUND_AAC);
+    assert(sound_sniff(TAGGED, sizeof(TAGGED)) == SOUND_MP3 && sound_sniff(JUNK, sizeof(JUNK)) == SOUND_UNKNOWN);
+
+    static const char RSS[] =
+        "<rss><channel><title>Pořad</title><item><title><![CDATA[ D&#xED;l 12: Tom & Jerry&#33; ]]></title><description>x</description>"
+        "<enclosure length=\"1\" type=\"audio/mpeg\" url=\"https://a.example/ep12.mp3?x=1&amp;y=2\"/></item>"
+        "<item><title>Starší</title><enclosure url=\"https://a.example/ep11.mp3\"/></item></channel></rss>";
+    char title[64];
+    char url[128];
+    assert(rss_first_item(RSS, strlen(RSS), title, sizeof(title), url, sizeof(url)));
+    assert(strcmp(title, "Díl 12: Tom & Jerry!") == 0 && strcmp(url, "https://a.example/ep12.mp3?x=1&y=2") == 0);
+    static const char NO_AUDIO[] = "<rss><item><title>A</title></item><item><enclosure url='b'/></item></rss>";
+    assert(!rss_first_item(NO_AUDIO, strlen(NO_AUDIO), title, sizeof(title), url, sizeof(url)));
+    assert(!rss_first_item("<rss></rss>", 11, title, sizeof(title), url, sizeof(url)));
+
+    assert(strcmp(station_name(station_match("Český rozhlas Dvojka")), "Dvojka") == 0);
+    assert(strcmp(station_name(station_match("RADIOŽURNÁL")), "Radiožurnál") == 0);
+    assert(strcmp(station_name(station_match("evropu 2")), "Evropa 2") == 0);
+    assert(station_match("Rádio Bonton") == -1);
+}
+
 int main(void)
 {
     test_printer();
@@ -448,6 +738,11 @@ int main(void)
     test_alarms();
     test_timers();
     test_gemini();
-    puts("modules: printer, reminders, travel, weather, text prompt, search, to-dos, alarms, timers and Gemini pass");
+    test_notices();
+    test_printer_events();
+    test_rain_and_sun();
+    test_caldav();
+    test_sound();
+    puts("modules: printer, reminders, travel, weather, text prompt, search, to-dos, alarms, timers, Gemini, notices, rain, CalDAV and sound pass");
     return 0;
 }

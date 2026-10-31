@@ -20,6 +20,8 @@
 #include "fx.h"
 #include "lists.h"
 #include "lvgl.h"
+#include "media.h"
+#include "watch.h"
 #include "net.h"
 #include "scene.h"
 #include "wake.h"
@@ -417,6 +419,16 @@ static void home_timer_add(int seconds)
     lists_add_timer(seconds, "");
 }
 
+static void home_media_station(int index)
+{
+    media_play_station(index);
+}
+
+static void home_media_noise(int kind)
+{
+    media_play_noise((noise_kind_t) kind, 0);
+}
+
 static void home_timer_cancel(uint32_t id)
 {
     lists_cancel_timer(id);
@@ -511,6 +523,12 @@ static void build(void)
         .todo = home_todo,
         .timer_add = home_timer_add,
         .timer_cancel = home_timer_cancel,
+        .notices_seen = watch_mark_read,
+        .media_station = home_media_station,
+        .media_noise = home_media_noise,
+        .media_stop = media_stop,
+        .station_name = station_name,
+        .station_count = station_count(),
     };
 
     lv_obj_t *screen = lv_screen_active();

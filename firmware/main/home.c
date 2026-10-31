@@ -74,6 +74,7 @@ static lv_obj_t *sheet;
 static lv_obj_t *sheet_value;
 static lv_obj_t *sheet_power;
 static lv_obj_t *sheet_list;
+static bool media_open;
 static lv_obj_t *pill_timer;
 static lv_obj_t *timer_rows[HOME_TIMERS];
 static bool today_open;
@@ -87,6 +88,8 @@ static bool built;
 
 static void build_pills(const home_data_t *data);
 static void on_today(lv_event_t *event);
+static void on_media(lv_event_t *event);
+static lv_obj_t *open_list_sheet(const char *title);
 
 static void style_panel(lv_obj_t *object, int radius)
 {
@@ -201,6 +204,7 @@ static void close_sheet(void)
         sheet_list = NULL;
         sheet_device = -1;
         today_open = false;
+        media_open = false;
         memset(timer_rows, 0, sizeof(timer_rows));
     }
 }
@@ -739,6 +743,15 @@ static void build_today(void)
         make_row_text(row, todo->done ? COLOR_DIM : COLOR_TEXT, todo->text);
     }
 
+    if (shown.notice_count > 0) {
+        settings_title(list, ICON_MESSAGE_TEXT_OUTLINE, "ZPRÁVY");
+    }
+    for (int i = 0; i < shown.notice_count; i++) {
+        lv_obj_t *row = make_today_row(list);
+        make_label(row, font.body, COLOR_ACCENT, shown.notices[i].when);
+        make_row_text(row, COLOR_TEXT, shown.notices[i].text);
+    }
+
     if (shown.alarm[0]) {
         settings_title(list, ICON_ALARM, "DALŠÍ BUDÍK");
         lv_obj_t *row = make_today_row(list);
@@ -748,7 +761,74 @@ static void build_today(void)
 
 static void on_today(lv_event_t *event)
 {
-    lv_obj_t *panel = open_sheet("Dnes");
+    open_list_sheet("Dnes");
+    today_open = true;
+    build_today();
+    if (act.notices_seen) {
+        act.notices_seen();
+    }
+}
+
+static void on_media_station(lv_event_t *event)
+{
+    if (act.media_station) {
+        act.media_station((int) (intptr_t) lv_event_get_user_data(event));
+    }
+}
+
+static void on_media_noise(lv_event_t *event)
+{
+    if (act.media_noise) {
+        act.media_noise((int) (intptr_t) lv_event_get_user_data(event));
+    }
+}
+
+static void on_media_stop(lv_event_t *event)
+{
+    if (act.media_stop) {
+        act.media_stop();
+    }
+}
+
+static void build_media(void)
+{
+    lv_obj_t *list = sheet_list;
+    lv_obj_clean(list);
+    if (shown.playing[0]) {
+        settings_title(list, ICON_MUSIC_NOTE, "HRAJE");
+        lv_obj_t *row = make_today_row(list);
+        make_row_text(row, COLOR_ACCENT, shown.playing);
+        make_button(row, 34, ICON_STOP, on_media_stop, NULL);
+    }
+    settings_title(list, ICON_RADIO, "RÁDIO");
+    for (int i = 0; i < act.station_count; i++) {
+        lv_obj_t *row = make_today_row(list);
+        lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(row, on_media_station, LV_EVENT_CLICKED, (void *) (intptr_t) i);
+        make_row_text(row, COLOR_TEXT, act.station_name(i));
+    }
+    settings_title(list, ICON_WAVES, "ŠUM NA USÍNÁNÍ");
+    static const char *const NOISES[HOME_NOISES] = {"Bílý", "Růžový", "Hnědý"};
+    lv_obj_t *choices = lv_obj_create(list);
+    lv_obj_remove_style_all(choices);
+    lv_obj_set_size(choices, lv_pct(100), 44);
+    lv_obj_set_flex_flow(choices, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(choices, 8, 0);
+    lv_obj_remove_flag(choices, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    for (int i = 0; i < HOME_NOISES; i++) {
+        lv_obj_t *pill = lv_obj_create(choices);
+        style_panel(pill, 22);
+        lv_obj_set_height(pill, 44);
+        lv_obj_set_flex_grow(pill, 1);
+        lv_obj_add_flag(pill, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(pill, on_media_noise, LV_EVENT_CLICKED, (void *) (intptr_t) i);
+        lv_obj_center(make_label(pill, font.small, COLOR_TEXT, NOISES[i]));
+    }
+}
+
+static lv_obj_t *open_list_sheet(const char *title)
+{
+    lv_obj_t *panel = open_sheet(title);
     sheet_list = lv_obj_create(panel);
     lv_obj_remove_style_all(sheet_list);
     lv_obj_set_size(sheet_list, 480, 480 - 88);
@@ -760,8 +840,14 @@ static void on_today(lv_event_t *event)
     lv_obj_set_flex_flow(sheet_list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_scroll_dir(sheet_list, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(sheet_list, LV_SCROLLBAR_MODE_OFF);
-    today_open = true;
-    build_today();
+    return panel;
+}
+
+static void on_media(lv_event_t *event)
+{
+    open_list_sheet("Přehrávání");
+    media_open = true;
+    build_media();
 }
 
 static lv_obj_t *make_tile(int index)
@@ -846,6 +932,8 @@ static bool same_layout(const home_data_t *data)
 static bool today_differs(const home_data_t *data)
 {
     if (data->timer_count != shown.timer_count || data->todo_count != shown.todo_count ||
+        data->notice_count != shown.notice_count ||
+        (data->notice_count > 0 && strcmp(data->notices[0].text, shown.notices[0].text) != 0) ||
         data->agenda_count != shown.agenda_count || strcmp(data->alarm, shown.alarm) != 0) {
         return true;
     }
@@ -895,13 +983,13 @@ static void build_grid(void)
     }
 }
 
-static lv_obj_t *make_pill(const char *glyph, const char *text, bool opens_today)
+static lv_obj_t *make_pill(const char *glyph, const char *text, lv_event_cb_t on_click)
 {
     lv_obj_t *pill = lv_obj_create(pill_row);
     style_panel(pill, 16);
-    if (opens_today) {
+    if (on_click) {
         lv_obj_add_flag(pill, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(pill, on_today, LV_EVENT_CLICKED, NULL);
+        lv_obj_add_event_cb(pill, on_click, LV_EVENT_CLICKED, NULL);
     } else {
         lv_obj_remove_flag(pill, LV_OBJ_FLAG_CLICKABLE);
     }
@@ -924,8 +1012,11 @@ static void build_pills(const home_data_t *data)
         lit += data->devices[i].on && data->devices[i].reachable && data->devices[i].kind != HOME_OUTLET;
     }
     char text[96];
+    if (data->playing[0]) {
+        make_pill(ICON_MUSIC_NOTE, data->playing, on_media);
+    }
     if (data->timer_count > 0) {
-        pill_timer = make_pill(ICON_TIMER_OUTLINE, data->timers[0].left, true);
+        pill_timer = make_pill(ICON_TIMER_OUTLINE, data->timers[0].left, on_today);
     }
     if (data->hub == HOME_HUB_READY && data->device_count > 0) {
         if (lit == 0) {
@@ -933,29 +1024,33 @@ static void build_pills(const home_data_t *data)
         } else {
             snprintf(text, sizeof(text), "%d svítí", lit);
         }
-        make_pill(lit ? ICON_LIGHTBULB : ICON_LIGHTBULB_OUTLINE, text, false);
+        make_pill(lit ? ICON_LIGHTBULB : ICON_LIGHTBULB_OUTLINE, text, NULL);
     }
     if (data->quiet[0]) {
-        make_pill(ICON_VOLUME_OFF, data->quiet, false);
+        make_pill(ICON_VOLUME_OFF, data->quiet, NULL);
+    }
+    if (data->unread > 0) {
+        snprintf(text, sizeof(text), "%d %s", data->unread, data->unread == 1 ? "zpráva" : data->unread < 5 ? "zprávy" : "zpráv");
+        make_pill(ICON_MESSAGE_TEXT_OUTLINE, text, on_today);
     }
     if (data->alarm[0]) {
-        make_pill(ICON_ALARM, data->alarm, true);
+        make_pill(ICON_ALARM, data->alarm, on_today);
     }
     if (data->todos > 0) {
         snprintf(text, sizeof(text), "%d %s", data->todos,
                  data->todos == 1 ? "úkol" : data->todos < 5 ? "úkoly" : "úkolů");
-        make_pill(ICON_FORMAT_LIST_CHECKS, text, true);
+        make_pill(ICON_FORMAT_LIST_CHECKS, text, on_today);
     }
     if (data->event[0]) {
-        make_pill(ICON_CALENDAR_BLANK, data->event, true);
+        make_pill(ICON_CALENDAR_BLANK, data->event, on_today);
     }
     if (data->reminders > 0) {
         snprintf(text, sizeof(text), "%d %s", data->reminders,
                  data->reminders == 1 ? "připomínka" : data->reminders < 5 ? "připomínky" : "připomínek");
-        make_pill(ICON_BELL_RING, text, true);
+        make_pill(ICON_BELL_RING, text, on_today);
     }
     if (data->printer[0]) {
-        make_pill(ICON_PRINTER_3D, data->printer, false);
+        make_pill(ICON_PRINTER_3D, data->printer, NULL);
     }
 }
 
@@ -1025,6 +1120,8 @@ lv_obj_t *home_create(lv_obj_t *parent, const home_fonts_t *fonts, const home_ac
     lv_obj_set_pos(lamp, SIDE + 8, HOME_ORB_Y - 28);
     lv_obj_t *today = make_button(root, 56, ICON_CALENDAR_TODAY, on_today, NULL);
     lv_obj_set_pos(today, SIDE + 8 + 64, HOME_ORB_Y - 28);
+    lv_obj_t *media = make_button(root, 56, ICON_MUSIC_NOTE, on_media, NULL);
+    lv_obj_set_pos(media, 480 - SIDE - 8 - 56 - 64, HOME_ORB_Y - 28);
     lv_obj_t *gear = make_button(root, 56, ICON_COG_OUTLINE, on_settings, NULL);
     lv_obj_set_pos(gear, 480 - SIDE - 8 - 56, HOME_ORB_Y - 28);
 
@@ -1067,7 +1164,9 @@ void home_update(const home_data_t *data)
     }
     bool pills = !built || strcmp(data->printer, shown.printer) || strcmp(data->event, shown.event) ||
                  data->reminders != shown.reminders || data->todos != shown.todos ||
-                 strcmp(data->alarm, shown.alarm) || strcmp(data->quiet, shown.quiet) || data->hub != shown.hub ||
+                 strcmp(data->alarm, shown.alarm) || strcmp(data->quiet, shown.quiet) || data->unread != shown.unread ||
+                 strcmp(data->playing, shown.playing) != 0 ||
+                 data->hub != shown.hub ||
                  data->device_count != shown.device_count || data->timer_count != shown.timer_count;
     for (int i = 0; i < data->device_count && !pills; i++) {
         pills = data->devices[i].on != shown.devices[i].on || data->devices[i].reachable != shown.devices[i].reachable;
@@ -1078,6 +1177,7 @@ void home_update(const home_data_t *data)
         lv_label_set_text(pill_timer, data->timers[0].left);
     }
     bool today_changed = today_open && today_differs(data);
+    bool media_changed = media_open && strcmp(data->playing, shown.playing) != 0;
     for (int i = 0; today_open && !today_changed && i < data->timer_count; i++) {
         if (timer_rows[i]) {
             lv_label_set_text(timer_rows[i], data->timers[i].left);
@@ -1096,6 +1196,12 @@ void home_update(const home_data_t *data)
     }
     memcpy(previous, shown.devices, sizeof(previous));
     shown = *data;
+    if (media_changed) {
+        int32_t scrolled = lv_obj_get_scroll_y(sheet_list);
+        build_media();
+        lv_obj_update_layout(sheet_list);
+        lv_obj_scroll_to_y(sheet_list, scrolled, LV_ANIM_OFF);
+    }
     if (today_changed) {
         int32_t scrolled = lv_obj_get_scroll_y(sheet_list);
         build_today();

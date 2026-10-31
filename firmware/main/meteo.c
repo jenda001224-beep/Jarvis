@@ -1,5 +1,7 @@
 #include "meteo.h"
 
+#define RAIN_THRESHOLD_MM 0.1
+
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -160,6 +162,49 @@ bool meteo_current(const char *json, size_t length, int *celsius, int *code)
         *celsius = (int) round(temperature);
         *code = (int) sky;
     }
+    cJSON_Delete(root);
+    return found;
+}
+
+int meteo_rain_in(const char *json, size_t length)
+{
+    cJSON *root = cJSON_ParseWithLength(json, length);
+    const cJSON *quarter = cJSON_GetObjectItemCaseSensitive(root, "minutely_15");
+    const cJSON *rain = quarter ? cJSON_GetObjectItemCaseSensitive(quarter, "precipitation") : NULL;
+    int minutes = -1;
+    int index = 0;
+    const cJSON *slot;
+    cJSON_ArrayForEach(slot, rain)
+    {
+        if (cJSON_IsNumber(slot) && slot->valuedouble >= RAIN_THRESHOLD_MM) {
+            minutes = index * 15;
+            break;
+        }
+        index++;
+    }
+    cJSON_Delete(root);
+    return minutes;
+}
+
+static bool clock_minutes(const cJSON *moments, int *minutes)
+{
+    const cJSON *first = cJSON_IsArray(moments) ? cJSON_GetArrayItem(moments, 0) : NULL;
+    const char *split = cJSON_IsString(first) ? strchr(first->valuestring, 'T') : NULL;
+    int hour;
+    int minute;
+    if (!split || sscanf(split + 1, "%d:%d", &hour, &minute) != 2) {
+        return false;
+    }
+    *minutes = hour * 60 + minute;
+    return true;
+}
+
+bool meteo_sun(const char *json, size_t length, int *sunrise_minutes, int *sunset_minutes)
+{
+    cJSON *root = cJSON_ParseWithLength(json, length);
+    const cJSON *daily = cJSON_GetObjectItemCaseSensitive(root, "daily");
+    bool found = daily && clock_minutes(cJSON_GetObjectItemCaseSensitive(daily, "sunrise"), sunrise_minutes) &&
+                 clock_minutes(cJSON_GetObjectItemCaseSensitive(daily, "sunset"), sunset_minutes);
     cJSON_Delete(root);
     return found;
 }

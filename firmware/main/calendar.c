@@ -6,6 +6,7 @@
 #include <time.h>
 
 #include "agenda.h"
+#include "caldav.h"
 #include "cJSON.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -32,6 +33,7 @@ static time_t window_start;
 static time_t window_end;
 static bool loaded;
 static SemaphoreHandle_t lock;
+static TaskHandle_t calendar_handle;
 
 static time_t day_start(time_t moment, int offset_days)
 {
@@ -56,7 +58,7 @@ static char *failure(const char *message)
 
 bool calendar_configured(void)
 {
-    return settings_get()->calendars[0][0] != 0;
+    return settings_get()->calendars[0][0] != 0 || caldav_configured();
 }
 
 static bool feed(void *context, const char *data, size_t length)
@@ -87,6 +89,9 @@ static bool refresh(void)
         }
         agenda_parser_source_end(parser);
     }
+    if (caldav_configured() && !caldav_read(from, to, parser)) {
+        complete = false;
+    }
     int count = agenda_parser_finish(parser, fresh, MAX_EVENTS);
     if (!complete && (loaded || count == 0)) {
         return false;
@@ -110,7 +115,7 @@ static void calendar_task(void *arg)
             continue;
         }
         bool complete = refresh();
-        vTaskDelay(pdMS_TO_TICKS(complete ? REFRESH_MS : RETRY_MS));
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(complete ? REFRESH_MS : RETRY_MS));
     }
 }
 
@@ -127,7 +132,14 @@ void calendar_start(void)
         ESP_LOGE(TAG, "not enough memory");
         return;
     }
-    xTaskCreatePinnedToCoreWithCaps(calendar_task, "calendar", 12288, NULL, 2, NULL, 0, MALLOC_CAP_SPIRAM);
+    xTaskCreatePinnedToCoreWithCaps(calendar_task, "calendar", 12288, NULL, 2, &calendar_handle, 0, MALLOC_CAP_SPIRAM);
+}
+
+void calendar_refresh_soon(void)
+{
+    if (calendar_handle) {
+        xTaskNotifyGive(calendar_handle);
+    }
 }
 
 char *calendar_tool_get(const char *args_json)

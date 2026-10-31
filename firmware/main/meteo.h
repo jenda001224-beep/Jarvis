@@ -8,3 +8,5 @@ bool meteo_parse_place(const char *json, size_t length, double *latitude, double
                        size_t capacity);
 char *meteo_describe(const char *json, size_t length, const char *place);
 bool meteo_current(const char *json, size_t length, int *celsius, int *code);
+int meteo_rain_in(const char *json, size_t length);
+bool meteo_sun(const char *json, size_t length, int *sunrise_minutes, int *sunset_minutes);

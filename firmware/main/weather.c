@@ -82,10 +82,17 @@ static char *forecast(const char *place, int days)
              "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f"
              "&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m"
              "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,"
-             "wind_speed_10m_max&timezone=auto&forecast_days=%d",
+             "wind_speed_10m_max,sunrise,sunset&minutely_15=precipitation&forecast_minutely_15=8&timezone=auto&forecast_days=%d",
              known_latitude, known_longitude, days);
     return web_get(url, RESPONSE_LIMIT, NULL);
 }
+
+#define VALID_TIME 1600000000
+
+static volatile bool rain_known;
+static volatile time_t rain_at;
+static volatile int sunrise_minutes = 7 * 60;
+static volatile int sunset_minutes = 17 * 60;
 
 static void weather_task(void *arg)
 {
@@ -99,6 +106,18 @@ static void weather_task(void *arg)
         int celsius = 0;
         int code = 0;
         bool found = body && meteo_current(body, strlen(body), &celsius, &code);
+        if (found) {
+            size_t length = strlen(body);
+            int rain_in = meteo_rain_in(body, length);
+            rain_known = time(NULL) > VALID_TIME;
+            rain_at = rain_in > 0 ? time(NULL) + rain_in * 60 : 0;
+            int rise;
+            int set;
+            if (meteo_sun(body, length, &rise, &set)) {
+                sunrise_minutes = rise;
+                sunset_minutes = set;
+            }
+        }
         free(body);
         xSemaphoreGive(lock);
         if (found) {
@@ -116,6 +135,24 @@ void weather_start(void)
     if (lock) {
         xTaskCreatePinnedToCoreWithCaps(weather_task, "weather", 12288, NULL, 2, NULL, 0, MALLOC_CAP_SPIRAM);
     }
+}
+
+bool weather_rain_at(time_t *when)
+{
+    if (!rain_known || rain_at == 0) {
+        return false;
+    }
+    *when = rain_at;
+    return true;
+}
+
+bool weather_dark(void)
+{
+    time_t now = time(NULL);
+    struct tm local;
+    localtime_r(&now, &local);
+    int minutes = local.tm_hour * 60 + local.tm_min;
+    return minutes < sunrise_minutes || minutes >= sunset_minutes;
 }
 
 bool weather_current(int *celsius, int *code)

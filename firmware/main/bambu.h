@@ -34,6 +34,14 @@ typedef struct {
     char text[BAMBU_TEXT_LENGTH];
 } bambu_text_t;
 
+typedef enum {
+    BAMBU_EVENT_NONE,
+    BAMBU_EVENT_FINISHED,
+    BAMBU_EVENT_FAILED,
+    BAMBU_EVENT_PAUSED,
+} bambu_event_t;
+
+bambu_event_t bambu_event(const char *before, const char *now);
 void bambu_status_reset(bambu_status_t *status);
 bool bambu_merge_report(bambu_status_t *status, const char *json, size_t length);
 void bambu_alert_code(const bambu_alert_t *alert, char out[BAMBU_CODE_LENGTH]);

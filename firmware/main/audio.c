@@ -235,6 +235,11 @@ void audio_play(const int16_t *pcm, size_t samples)
     }
 }
 
+size_t audio_buffered(void)
+{
+    return xStreamBufferBytesAvailable(play_buffer);
+}
+
 void audio_finish(void)
 {
     draining = true;

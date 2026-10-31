@@ -433,6 +433,17 @@ char *printer_tool_status(void)
     return bambu_describe(&snapshot, texts, TEXT_SLOTS);
 }
 
+bool printer_status(bambu_status_t *out)
+{
+    if (!lock || !connected) {
+        return false;
+    }
+    xSemaphoreTake(lock, portMAX_DELAY);
+    *out = status;
+    xSemaphoreGive(lock);
+    return out->known;
+}
+
 size_t printer_summary(char *out, size_t capacity)
 {
     out[0] = 0;

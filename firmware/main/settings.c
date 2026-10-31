@@ -52,6 +52,10 @@ static const stored_text_t STORED_TEXTS[] = {
     {"printer_code", sizeof(settings.printer_code), false},
     {"printer_ip", sizeof(settings.printer_address), false},
     {"printer_serial", sizeof(settings.printer_serial), false},
+    {"apple_id", sizeof(settings.apple_id), false},
+    {"apple_password", sizeof(settings.apple_password), false},
+    {"apple_calendar", sizeof(settings.apple_calendar), false},
+    {"apple_server", sizeof(settings.apple_server), false},
 };
 
 static const esp_partition_t *config_partition(void)
@@ -193,6 +197,10 @@ bool settings_load(void)
     copy_string(settings.printer_code, sizeof(settings.printer_code), root, "printer_code");
     copy_string(settings.printer_address, sizeof(settings.printer_address), root, "printer_ip");
     copy_string(settings.printer_serial, sizeof(settings.printer_serial), root, "printer_serial");
+    copy_string(settings.apple_id, sizeof(settings.apple_id), root, "apple_id");
+    copy_string(settings.apple_password, sizeof(settings.apple_password), root, "apple_password");
+    copy_string(settings.apple_calendar, sizeof(settings.apple_calendar), root, "apple_calendar");
+    copy_string(settings.apple_server, sizeof(settings.apple_server), root, "apple_server");
     const cJSON *calendar;
     int calendars = 0;
     cJSON_ArrayForEach(calendar, cJSON_GetObjectItemCaseSensitive(root, "calendars"))

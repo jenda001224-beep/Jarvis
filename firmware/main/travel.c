@@ -142,3 +142,22 @@ char *travel_tool(const char *args_json)
     cJSON_Delete(args);
     return result;
 }
+
+bool travel_minutes(const char *destination, int *minutes)
+{
+    cJSON *args = cJSON_CreateObject();
+    cJSON_AddStringToObject(args, "destination", destination);
+    char *text = cJSON_PrintUnformatted(args);
+    cJSON_Delete(args);
+    char *answer = text ? travel_tool(text) : NULL;
+    free(text);
+    cJSON *root = answer ? cJSON_Parse(answer) : NULL;
+    const cJSON *value = cJSON_GetObjectItemCaseSensitive(root, "minutes");
+    bool found = cJSON_IsNumber(value);
+    if (found) {
+        *minutes = value->valueint;
+    }
+    cJSON_Delete(root);
+    free(answer);
+    return found;
+}

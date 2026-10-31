@@ -18,6 +18,7 @@ esp_err_t audio_init(int volume);
 bool audio_read_microphone(int16_t *buffer, size_t samples);
 void audio_play(const int16_t *pcm, size_t samples);
 void audio_finish(void);
+size_t audio_buffered(void);
 void audio_prepare(void);
 void audio_flush(void);
 void audio_set_muted(bool muted);

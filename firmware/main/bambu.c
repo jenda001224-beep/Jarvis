@@ -432,3 +432,19 @@ bool bambu_parse_lookup(const char *json, size_t length, char *out, size_t capac
     cJSON_Delete(root);
     return found;
 }
+
+bambu_event_t bambu_event(const char *before, const char *now)
+{
+    bool working = strcmp(before, "RUNNING") == 0 || strcmp(before, "PREPARE") == 0;
+    bool paused = strcmp(before, "PAUSE") == 0;
+    if (strcmp(now, "FAILED") == 0 && (working || paused)) {
+        return BAMBU_EVENT_FAILED;
+    }
+    if (strcmp(now, "FINISH") == 0 && (working || paused)) {
+        return BAMBU_EVENT_FINISHED;
+    }
+    if (strcmp(now, "PAUSE") == 0 && working) {
+        return BAMBU_EVENT_PAUSED;
+    }
+    return BAMBU_EVENT_NONE;
+}

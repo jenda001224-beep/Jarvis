@@ -39,6 +39,8 @@ typedef struct {
 #define HOME_TIMERS 4
 #define HOME_TODOS 14
 #define HOME_AGENDA 8
+#define HOME_NOTICES 6
+#define HOME_NOISES 3
 
 typedef struct {
     uint32_t id;
@@ -60,6 +62,11 @@ typedef struct {
 } home_event_t;
 
 typedef struct {
+    char when[8];
+    char text[200];
+} home_notice_t;
+
+typedef struct {
     int volume;
     int brightness;
     int sleep;
@@ -69,6 +76,7 @@ typedef struct {
     int night;
     int night_from;
     int night_to;
+    int announce;
 } home_prefs_t;
 
 typedef struct {
@@ -90,6 +98,10 @@ typedef struct {
     home_todo_t todo_items[HOME_TODOS];
     int agenda_count;
     home_event_t agenda[HOME_AGENDA];
+    char playing[64];
+    int unread;
+    int notice_count;
+    home_notice_t notices[HOME_NOTICES];
     home_hub_t hub;
     int device_count;
     home_device_t devices[HOME_DEVICES];
@@ -109,6 +121,12 @@ typedef struct {
     void (*todo)(uint32_t id, bool done);
     void (*timer_add)(int seconds);
     void (*timer_cancel)(uint32_t id);
+    void (*notices_seen)(void);
+    void (*media_station)(int index);
+    void (*media_noise)(int kind);
+    void (*media_stop)(void);
+    const char *(*station_name)(int index);
+    int station_count;
 } home_actions_t;
 
 typedef struct {

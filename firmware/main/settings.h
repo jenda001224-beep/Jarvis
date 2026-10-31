@@ -20,6 +20,10 @@ typedef struct {
     char printer_address[40];
     char printer_serial[24];
     char calendars[SETTINGS_CALENDARS][256];
+    char apple_id[80];
+    char apple_password[40];
+    char apple_calendar[48];
+    char apple_server[64];
     int volume;
     int sensitivity;
     bool search;
