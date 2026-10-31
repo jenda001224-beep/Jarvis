@@ -21,14 +21,21 @@ typedef struct {
     void (*output_text)(void *ctx, const char *text);
     void (*interrupted)(void *ctx);
     void (*turn_complete)(void *ctx);
-    void (*tool_call)(void *ctx, const char *id, const char *name, const char *args_json);
+    void (*tool_call)(void *ctx, const char *id, const char *name, const char *args_json, int remaining);
     void (*go_away)(void *ctx);
 } proto_handlers_t;
 
 char *proto_build_setup(const proto_setup_t *setup);
 size_t proto_audio_capacity(size_t samples);
 size_t proto_build_audio(char *out, size_t capacity, const int16_t *pcm, size_t samples);
+typedef struct {
+    const char *id;
+    const char *name;
+    const char *result_json;
+} proto_tool_result_t;
+
 char *proto_build_tool_response(const char *id, const char *name, const char *result_json);
+char *proto_build_tool_responses(const proto_tool_result_t *results, int count);
 char *proto_build_text(const char *text);
 void proto_free(char *text);
 const char *proto_stream_end(void);

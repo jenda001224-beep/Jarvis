@@ -21,7 +21,8 @@
 #define MICROPHONE_GAIN_DB 37.5f
 #define POLL_MS 20
 #define DRAINED_AFTER_POLLS 10
-#define AMPLIFIER_OFF_AFTER_POLLS 100
+#define AMPLIFIER_OFF_AFTER_POLLS 1500
+#define AMPLIFIER_WARMUP_MS 350
 #define START_BYTES (AUDIO_SAMPLE_RATE * sizeof(int16_t) / 5)
 #define START_WAIT_MS 600
 
@@ -70,6 +71,13 @@ static int64_t now_ms(void)
     return esp_timer_get_time() / 1000;
 }
 
+static volatile bool warm_requested;
+
+void audio_prepare(void)
+{
+    warm_requested = true;
+}
+
 static void play_task(void *arg)
 {
     static int16_t chunk[PLAY_CHUNK_SAMPLES];
@@ -79,6 +87,7 @@ static void play_task(void *arg)
     int64_t waiting_since = 0;
     bool running = false;
     bool amplifier = false;
+    int64_t amplifier_since = 0;
 
     for (;;) {
         if (flush_requested) {
@@ -96,11 +105,19 @@ static void play_task(void *arg)
             amplifier = false;
         }
         size_t buffered = xStreamBufferBytesAvailable(play_buffer);
+        if ((warm_requested || buffered >= sizeof(int16_t)) && !amplifier && !muted) {
+            bsp_audio_poweramp_enable(true);
+            amplifier = true;
+            amplifier_since = now_ms();
+            idle_polls = 0;
+        }
+        warm_requested = false;
         if (!running && buffered >= sizeof(int16_t)) {
             if (!waiting_since) {
                 waiting_since = now_ms();
             }
-            running = buffered >= START_BYTES || draining || now_ms() - waiting_since >= START_WAIT_MS;
+            bool warm = muted || (amplifier && now_ms() - amplifier_since >= AMPLIFIER_WARMUP_MS);
+            running = warm && (buffered >= START_BYTES || draining || now_ms() - waiting_since >= START_WAIT_MS);
         }
         if (!running) {
             idle_polls++;
@@ -126,10 +143,6 @@ static void play_task(void *arg)
                 underruns++;
             }
             continue;
-        }
-        if (!amplifier && !muted) {
-            bsp_audio_poweramp_enable(true);
-            amplifier = true;
         }
         idle_polls = 0;
         output_level = audio_level_of(chunk, usable / 2);

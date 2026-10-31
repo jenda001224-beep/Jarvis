@@ -13,6 +13,7 @@ final class AppModel {
     private(set) var todos: [Todo] = []
     private(set) var alarms: [Alarm] = []
     private(set) var reminders: [Reminder] = []
+    private(set) var devices: [HomeDevice] = []
     private(set) var reachable = true
     var problem: String?
     var restarting = false
@@ -223,6 +224,21 @@ final class AppModel {
     func stopAlarm() async {
         _ = await perform { try await $0.send("POST", "api/alarm/stop", fields: [:], as: DeviceState.self) }
         await refresh()
+    }
+
+    // MARK: Lights and outlets
+
+    func loadDevices() async {
+        if let list = await perform({ try await $0.send("GET", "api/devices", as: HomeDeviceList.self) }) {
+            devices = list.devices
+        }
+    }
+
+    func rename(_ device: HomeDevice, name: String?, room: String?) async {
+        let fields: [String: Any] = ["name": name ?? NSNull(), "room": room ?? NSNull()]
+        if let list = await perform({ try await $0.send("PUT", "api/devices/\(device.id)", fields: fields, as: HomeDeviceList.self) }) {
+            devices = list.devices
+        }
     }
 
     // MARK: Device

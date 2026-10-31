@@ -16,6 +16,7 @@ typedef struct {
     char heard[256];
     char spoken[256];
     char tool[512];
+    char remaining[16];
 } seen_t;
 
 static void on_setup(void *ctx) { ((seen_t *) ctx)->setup++; }
@@ -35,9 +36,12 @@ static void on_audio(void *ctx, const int16_t *pcm, size_t samples)
 static void on_heard(void *ctx, const char *text) { strcat(((seen_t *) ctx)->heard, text); }
 static void on_spoken(void *ctx, const char *text) { strcat(((seen_t *) ctx)->spoken, text); }
 
-static void on_tool(void *ctx, const char *id, const char *name, const char *args)
+static void on_tool(void *ctx, const char *id, const char *name, const char *args, int remaining)
 {
-    snprintf(((seen_t *) ctx)->tool, sizeof(((seen_t *) ctx)->tool), "%s|%s|%s", id, name, args);
+    seen_t *seen = ctx;
+    snprintf(seen->tool, sizeof(seen->tool), "%s|%s|%s", id, name, args);
+    size_t used = strlen(seen->remaining);
+    snprintf(seen->remaining + used, sizeof(seen->remaining) - used, "%d", remaining);
 }
 
 static const proto_handlers_t HANDLERS = {
@@ -140,6 +144,13 @@ int main(void)
     assert(strcmp(text, "{\"toolResponse\":{\"functionResponses\":[{\"id\":\"call-1\",\"name\":\"set_devices\","
                         "\"response\":{\"result\":\"ok\",\"changed\":2}}]}}") == 0);
     proto_free(text);
+    const proto_tool_result_t pair[] = {{"call-a", "get_weather", "{\"place\":\"Praha\"}"},
+                                        {"call-b", "list_todos", "{\"todos\":[]}"}};
+    text = proto_build_tool_responses(pair, 2);
+    assert(strcmp(text, "{\"toolResponse\":{\"functionResponses\":[{\"id\":\"call-a\",\"name\":\"get_weather\","
+                        "\"response\":{\"place\":\"Praha\"}},{\"id\":\"call-b\",\"name\":\"list_todos\","
+                        "\"response\":{\"todos\":[]}}]}}") == 0);
+    proto_free(text);
     text = proto_build_tool_response("call-2", "x", "hub neodpovídá \"teď\"");
     root = cJSON_Parse(text);
     assert(root);
@@ -186,6 +197,10 @@ int main(void)
     assert(strcmp(seen.tool, "function-call-77|set_devices|{\"ids\":[\"a_1\",\"b_1\"],\"on\":false}") == 0);
     feed(&seen, "{\"toolCall\":{\"functionCalls\":[{\"name\":\"get_devices\"}]}}");
     assert(strcmp(seen.tool, "|get_devices|{}") == 0);
+    seen.remaining[0] = 0;
+    feed(&seen, "{\"toolCall\":{\"functionCalls\":[{\"id\":\"a\",\"name\":\"get_weather\"},{\"id\":\"x\"},"
+                "{\"id\":\"b\",\"name\":\"list_todos\"}]}}");
+    assert(strcmp(seen.remaining, "10") == 0 && strcmp(seen.tool, "b|list_todos|{}") == 0);
     feed(&seen, "{\"goAway\":{\"timeLeft\":\"10s\"}}");
     assert(seen.away == 1);
     feed(&seen, "not json at all");

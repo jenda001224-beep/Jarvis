@@ -43,6 +43,8 @@ static char token[1536];
 static EXTERNAL_RAM device_t devices[MAX_DEVICES];
 static EXTERNAL_RAM device_t fresh[MAX_DEVICES];
 static int device_count;
+static EXTERNAL_RAM ikea_alias_t aliases[IKEA_ALIASES];
+static int alias_count;
 static volatile ikea_state_t state = IKEA_SEARCHING;
 static volatile bool pairing_requested;
 static SemaphoreHandle_t lock;
@@ -242,6 +244,37 @@ static void copy_field(char *target, size_t capacity, const cJSON *object, const
     strlcpy(target, cJSON_IsString(item) ? item->valuestring : "", capacity);
 }
 
+static void apply_alias(device_t *device)
+{
+    strlcpy(device->name, device->hub_name, sizeof(device->name));
+    strlcpy(device->room, device->hub_room, sizeof(device->room));
+    for (int i = 0; i < alias_count; i++) {
+        if (strcmp(aliases[i].id, device->id) != 0) {
+            continue;
+        }
+        if (aliases[i].named) {
+            strlcpy(device->name, aliases[i].name, sizeof(device->name));
+        }
+        if (aliases[i].roomed) {
+            strlcpy(device->room, aliases[i].room, sizeof(device->room));
+        }
+    }
+}
+
+void ikea_set_aliases(const ikea_alias_t *list, int count)
+{
+    if (!table_lock) {
+        return;
+    }
+    xSemaphoreTake(table_lock, portMAX_DELAY);
+    alias_count = count < IKEA_ALIASES ? count : IKEA_ALIASES;
+    memcpy(aliases, list, (size_t) alias_count * sizeof(ikea_alias_t));
+    for (int i = 0; i < device_count; i++) {
+        apply_alias(&devices[i]);
+    }
+    xSemaphoreGive(table_lock);
+}
+
 static int refresh(void)
 {
     int status = request(HTTP_METHOD_GET, "/devices", NULL, NULL, true);
@@ -264,8 +297,8 @@ static int refresh(void)
         const cJSON *attributes = cJSON_GetObjectItemCaseSensitive(entry, "attributes");
         device_t *device = &fresh[count];
         copy_field(device->id, sizeof(device->id), entry, "id");
-        copy_field(device->name, sizeof(device->name), attributes, "customName");
-        copy_field(device->room, sizeof(device->room), cJSON_GetObjectItemCaseSensitive(entry, "room"), "name");
+        copy_field(device->hub_name, sizeof(device->hub_name), attributes, "customName");
+        copy_field(device->hub_room, sizeof(device->hub_room), cJSON_GetObjectItemCaseSensitive(entry, "room"), "name");
         device->light = light;
         device->on = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(attributes, "isOn"));
         device->reachable = !cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(entry, "isReachable"));
@@ -281,6 +314,9 @@ static int refresh(void)
     xSemaphoreTake(table_lock, portMAX_DELAY);
     memcpy(devices, fresh, sizeof(devices));
     device_count = count;
+    for (int i = 0; i < device_count; i++) {
+        apply_alias(&devices[i]);
+    }
     xSemaphoreGive(table_lock);
     ESP_LOGI(TAG, "%d lights and outlets", count);
     return status;

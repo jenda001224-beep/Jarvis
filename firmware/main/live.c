@@ -88,10 +88,10 @@ static void on_turn_complete(void *ctx)
     app_post(APP_EVENT_TURN_COMPLETE);
 }
 
-static void on_tool_call(void *ctx, const char *id, const char *name, const char *args_json)
+static void on_tool_call(void *ctx, const char *id, const char *name, const char *args_json, int remaining)
 {
     if (callbacks.tool) {
-        callbacks.tool(id, name, args_json);
+        callbacks.tool(id, name, args_json, remaining);
     }
 }
 
@@ -310,9 +310,9 @@ void live_send_stream_end(void)
     send_text(message, strlen(message));
 }
 
-void live_send_tool_response(const char *id, const char *name, const char *result_json)
+void live_send_tool_responses(const proto_tool_result_t *results, int count)
 {
-    char *message = proto_build_tool_response(id, name, result_json);
+    char *message = proto_build_tool_responses(results, count);
     if (message) {
         send_text(message, strlen(message));
         proto_free(message);

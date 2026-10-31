@@ -6,6 +6,8 @@ typedef struct {
     char id[56];
     char name[48];
     char room[32];
+    char hub_name[48];
+    char hub_room[32];
     bool light;
     bool on;
     bool reachable;
@@ -13,6 +15,16 @@ typedef struct {
     bool white;
     int level;
 } ikea_device_t;
+
+#define IKEA_ALIASES 24
+
+typedef struct {
+    char id[56];
+    char name[48];
+    char room[32];
+    bool named;
+    bool roomed;
+} ikea_alias_t;
 
 typedef enum {
     IKEA_SEARCHING,
@@ -32,3 +44,4 @@ char *ikea_tool_get(void);
 char *ikea_tool_set(const char *args_json);
 int ikea_devices(ikea_device_t *out, int capacity);
 void ikea_refresh_soon(void);
+void ikea_set_aliases(const ikea_alias_t *list, int count);

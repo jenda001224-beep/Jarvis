@@ -715,7 +715,9 @@ static void build_grid(void)
     for (int i = 0; i < shown.device_count; i++) {
         if (!room || strcmp(room, shown.devices[i].room) != 0) {
             room = shown.devices[i].room;
-            make_room(room[0] ? room : "OSTATNÍ");
+            if (room[0] || i > 0) {
+                make_room(room[0] ? room : "OSTATNÍ");
+            }
         }
         make_tile(i);
         tile_count++;

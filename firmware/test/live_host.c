@@ -51,7 +51,7 @@ static void on_turn(void *ctx)
     puts("EVENT turn");
 }
 
-static void on_tool(void *ctx, const char *id, const char *name, const char *args)
+static void on_tool(void *ctx, const char *id, const char *name, const char *args, int remaining)
 {
     printf("EVENT tool %s %s\n", name, args);
     const char *result = strcmp(name, "get_devices") == 0

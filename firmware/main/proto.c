@@ -158,25 +158,34 @@ size_t proto_build_audio(char *out, size_t capacity, const int16_t *pcm, size_t 
     return o + sizeof(AUDIO_SUFFIX) - 1;
 }
 
-char *proto_build_tool_response(const char *id, const char *name, const char *result_json)
+char *proto_build_tool_responses(const proto_tool_result_t *results, int count)
 {
     cJSON *root = cJSON_CreateObject();
     cJSON *body = cJSON_AddObjectToObject(root, "toolResponse");
     cJSON *responses = cJSON_AddArrayToObject(body, "functionResponses");
-    cJSON *entry = cJSON_CreateObject();
-    cJSON_AddStringToObject(entry, "id", id);
-    cJSON_AddStringToObject(entry, "name", name);
-    cJSON *result = result_json ? cJSON_Parse(result_json) : NULL;
-    if (!result || !cJSON_IsObject(result)) {
-        cJSON_Delete(result);
-        result = cJSON_CreateObject();
-        cJSON_AddStringToObject(result, "result", result_json ? result_json : "ok");
+    for (int i = 0; i < count; i++) {
+        cJSON *entry = cJSON_CreateObject();
+        cJSON_AddStringToObject(entry, "id", results[i].id);
+        cJSON_AddStringToObject(entry, "name", results[i].name);
+        const char *result_json = results[i].result_json;
+        cJSON *result = result_json ? cJSON_Parse(result_json) : NULL;
+        if (!result || !cJSON_IsObject(result)) {
+            cJSON_Delete(result);
+            result = cJSON_CreateObject();
+            cJSON_AddStringToObject(result, "result", result_json ? result_json : "ok");
+        }
+        cJSON_AddItemToObject(entry, "response", result);
+        cJSON_AddItemToArray(responses, entry);
     }
-    cJSON_AddItemToObject(entry, "response", result);
-    cJSON_AddItemToArray(responses, entry);
     char *text = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     return text;
+}
+
+char *proto_build_tool_response(const char *id, const char *name, const char *result_json)
+{
+    const proto_tool_result_t result = {.id = id, .name = name, .result_json = result_json};
+    return proto_build_tool_responses(&result, 1);
 }
 
 char *proto_build_text(const char *text)
@@ -314,9 +323,14 @@ void proto_parse(char *message, size_t length, const proto_handlers_t *handlers,
             handlers->turn_complete(ctx);
         }
     }
-    const cJSON *call = cJSON_GetObjectItemCaseSensitive(root, "toolCall");
+    const cJSON *calls = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(root, "toolCall"), "functionCalls");
     const cJSON *function;
-    cJSON_ArrayForEach(function, cJSON_GetObjectItemCaseSensitive(call, "functionCalls"))
+    int remaining = 0;
+    cJSON_ArrayForEach(function, calls)
+    {
+        remaining += string_at(function, "name", NULL) != NULL;
+    }
+    cJSON_ArrayForEach(function, calls)
     {
         const char *name = string_at(function, "name", NULL);
         const char *id = string_at(function, "id", NULL);
@@ -325,7 +339,7 @@ void proto_parse(char *message, size_t length, const proto_handlers_t *handlers,
             continue;
         }
         char *args_json = args ? cJSON_PrintUnformatted(args) : NULL;
-        handlers->tool_call(ctx, id ? id : "", name, args_json ? args_json : "{}");
+        handlers->tool_call(ctx, id ? id : "", name, args_json ? args_json : "{}", --remaining);
         cJSON_free(args_json);
     }
     if (cJSON_GetObjectItemCaseSensitive(root, "goAway") && handlers->go_away) {

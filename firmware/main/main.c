@@ -63,8 +63,11 @@
 #define NOISE_SMOOTHING 0.03f
 #define SPEECH_ABOVE_NOISE 15
 #define LOOP_WAIT_MS 100
+#define TOOL_BATCH 8
+#define TOOL_BATCH_WAIT_MS 1500
 #define NVS_APP_TOKENS "app_tokens"
 #define NVS_REMINDERS "reminders"
+#define NVS_ALIASES "aliases"
 #define PAIRING_MS 120000
 #define PAIRING_ATTEMPTS 5
 #define ALARM_GAP_MS 2500
@@ -98,7 +101,14 @@ typedef struct {
     char id[80];
     char name[40];
     char *args;
+    int remaining;
 } tool_call_t;
+
+typedef struct {
+    char id[80];
+    char name[40];
+    char *result;
+} tool_result_t;
 
 typedef struct {
     char *data;
@@ -395,9 +405,9 @@ static void on_spoken(const char *text)
     ui_append_spoken(text);
 }
 
-static void on_tool(const char *id, const char *name, const char *args_json)
+static void on_tool(const char *id, const char *name, const char *args_json, int remaining)
 {
-    tool_call_t call = {0};
+    tool_call_t call = {.remaining = remaining};
     strlcpy(call.id, id, sizeof(call.id));
     strlcpy(call.name, name, sizeof(call.name));
     call.args = strdup(args_json);
@@ -559,21 +569,51 @@ static char *run_tool(const tool_call_t *call)
     return result;
 }
 
+static void send_tool_results(tool_result_t *batch, int count)
+{
+    proto_tool_result_t results[TOOL_BATCH];
+    for (int i = 0; i < count; i++) {
+        results[i] = (proto_tool_result_t) {
+            .id = batch[i].id,
+            .name = batch[i].name,
+            .result_json = batch[i].result ? batch[i].result : "{\"error\":\"neznámý nástroj\"}",
+        };
+    }
+    live_send_tool_responses(results, count);
+    for (int i = 0; i < count; i++) {
+        cJSON_free(batch[i].result);
+        batch[i].result = NULL;
+    }
+}
+
 static void tool_task(void *arg)
 {
+    static tool_result_t batch[TOOL_BATCH];
+    int pending = 0;
     tool_call_t call;
     for (;;) {
-        if (xQueueReceive(tool_calls, &call, portMAX_DELAY) != pdTRUE) {
+        TickType_t wait = pending ? pdMS_TO_TICKS(TOOL_BATCH_WAIT_MS) : portMAX_DELAY;
+        if (xQueueReceive(tool_calls, &call, wait) != pdTRUE) {
+            if (pending) {
+                send_tool_results(batch, pending);
+                pending = 0;
+                tool_busy = false;
+            }
             continue;
         }
         ESP_LOGI(TAG, "tool %s %s", call.name, call.args);
         tool_busy = true;
-        char *result = run_tool(&call);
-        ESP_LOGI(TAG, "tool answer %.240s", result ? result : "none");
-        live_send_tool_response(call.id, call.name, result ? result : "{\"error\":\"neznámý nástroj\"}");
-        tool_busy = false;
-        cJSON_free(result);
+        tool_result_t *slot = &batch[pending++];
+        strlcpy(slot->id, call.id, sizeof(slot->id));
+        strlcpy(slot->name, call.name, sizeof(slot->name));
+        slot->result = run_tool(&call);
+        ESP_LOGI(TAG, "tool answer %.240s", slot->result ? slot->result : "none");
         free(call.args);
+        if (call.remaining <= 0 || pending == TOOL_BATCH) {
+            send_tool_results(batch, pending);
+            pending = 0;
+            tool_busy = false;
+        }
     }
 }
 
@@ -802,6 +842,7 @@ static void start_session(session_kind_t kind)
         wake_clear_capture();
     }
     session_kind = kind;
+    audio_prepare();
     connect_attempt = 1;
     esp_err_t opened = open_connection();
     if (opened != ESP_OK) {
@@ -1188,6 +1229,8 @@ extern const uint8_t alarm_chime_start[] asm("_binary_alarm_pcm_start");
 extern const uint8_t alarm_chime_end[] asm("_binary_alarm_pcm_end");
 
 static char tokens[API_TOKENS][API_TOKEN_LENGTH + 1];
+static EXTERNAL_RAM ikea_alias_t aliases[IKEA_ALIASES];
+static int alias_count;
 static char pairing_code[8];
 static int64_t pairing_until;
 static int pairing_attempts;
@@ -1215,6 +1258,18 @@ static void save_tokens(void)
 {
     settings_write_blob(NVS_APP_TOKENS, tokens, sizeof(tokens));
     api_set_tokens(tokens);
+}
+
+static void load_aliases(void)
+{
+    size_t length = settings_read_blob(NVS_ALIASES, aliases, sizeof(aliases));
+    alias_count = (int) (length / sizeof(ikea_alias_t));
+    for (int i = 0; i < alias_count; i++) {
+        aliases[i].id[sizeof(aliases[i].id) - 1] = 0;
+        aliases[i].name[sizeof(aliases[i].name) - 1] = 0;
+        aliases[i].room[sizeof(aliases[i].room) - 1] = 0;
+    }
+    ikea_set_aliases(aliases, alias_count);
 }
 
 static void stop_pairing(void)
@@ -1441,6 +1496,86 @@ static void api_prefs(api_call_t *call, const cJSON *body)
     call->reply = json_reply(root);
 }
 
+static cJSON *devices_json(void)
+{
+    static EXTERNAL_RAM ikea_device_t found[HOME_DEVICES];
+    int count = ikea_devices(found, HOME_DEVICES);
+    cJSON *root = cJSON_CreateObject();
+    cJSON *list = cJSON_AddArrayToObject(root, "devices");
+    for (int i = 0; i < count; i++) {
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "id", found[i].id);
+        cJSON_AddStringToObject(item, "name", found[i].name);
+        cJSON_AddStringToObject(item, "room", found[i].room);
+        cJSON_AddStringToObject(item, "hub_name", found[i].hub_name);
+        cJSON_AddStringToObject(item, "hub_room", found[i].hub_room);
+        cJSON_AddBoolToObject(item, "light", found[i].light);
+        cJSON_AddBoolToObject(item, "on", found[i].on);
+        cJSON_AddBoolToObject(item, "reachable", found[i].reachable);
+        cJSON_AddItemToArray(list, item);
+    }
+    return root;
+}
+
+static bool set_alias_text(const cJSON *item, char *target, size_t capacity, bool *flag)
+{
+    if (!item) {
+        return true;
+    }
+    if (cJSON_IsNull(item)) {
+        *flag = false;
+        target[0] = 0;
+        return true;
+    }
+    if (!cJSON_IsString(item) || strlen(item->valuestring) >= capacity) {
+        return false;
+    }
+    strlcpy(target, item->valuestring, capacity);
+    *flag = true;
+    return true;
+}
+
+static void api_devices(api_call_t *call, const char *id, const cJSON *body)
+{
+    if (call->method == API_PUT && id[0] && strlen(id) < sizeof(aliases[0].id)) {
+        int index = 0;
+        while (index < alias_count && strcmp(aliases[index].id, id) != 0) {
+            index++;
+        }
+        if (index == alias_count && alias_count == IKEA_ALIASES) {
+            api_error(call, 400, "too many renamed devices");
+            return;
+        }
+        ikea_alias_t alias = {0};
+        if (index < alias_count) {
+            alias = aliases[index];
+        }
+        strlcpy(alias.id, id, sizeof(alias.id));
+        const cJSON *name = cJSON_GetObjectItemCaseSensitive(body, "name");
+        if (cJSON_IsString(name) && !name->valuestring[0]) {
+            api_error(call, 400, "empty name");
+            return;
+        }
+        if (!set_alias_text(name, alias.name, sizeof(alias.name), &alias.named) ||
+            !set_alias_text(cJSON_GetObjectItemCaseSensitive(body, "room"), alias.room, sizeof(alias.room), &alias.roomed)) {
+            api_error(call, 400, "bad name or room");
+            return;
+        }
+        if (alias.named || alias.roomed) {
+            aliases[index] = alias;
+            alias_count += index == alias_count;
+        } else if (index < alias_count) {
+            aliases[index] = aliases[--alias_count];
+        }
+        settings_write_blob(NVS_ALIASES, aliases, (size_t) alias_count * sizeof(ikea_alias_t));
+        ikea_set_aliases(aliases, alias_count);
+    } else if (call->method != API_GET || id[0]) {
+        api_error(call, 404, "not found");
+        return;
+    }
+    call->reply = json_reply(devices_json());
+}
+
 static void api_reminders(api_call_t *call, uint32_t id)
 {
     if (call->method == API_DELETE && id) {
@@ -1571,6 +1706,8 @@ static void handle_api(api_call_t *call)
         } else {
             api_error(call, 400, call->body ? error : "settings missing");
         }
+    } else if (strncmp(path, "/api/devices", 12) == 0 && (path[12] == 0 || path[12] == '/')) {
+        api_devices(call, path[12] == '/' ? path + 13 : "", body);
     } else if (strncmp(path, "/api/reminders", 14) == 0) {
         api_reminders(call, path[14] == '/' ? (uint32_t) strtoul(path + 15, NULL, 10) : 0);
     } else if (strcmp(path, "/api/lamp") == 0 && call->method == API_POST) {
@@ -1923,7 +2060,7 @@ void app_main(void)
     cJSON_Hooks hooks = {.malloc_fn = allocate_external, .free_fn = free};
     cJSON_InitHooks(&hooks);
     events = xQueueCreate(32, sizeof(app_event_t));
-    tool_calls = xQueueCreate(4, sizeof(tool_call_t));
+    tool_calls = xQueueCreate(TOOL_BATCH, sizeof(tool_call_t));
     reminder_lock = xSemaphoreCreateMutex();
 
     uint16_t *framebuffer = NULL;
@@ -1979,6 +2116,7 @@ void app_main(void)
     static char hub_token[1536];
     settings_read_hub_token(hub_token, sizeof(hub_token));
     ikea_start(hub_token);
+    load_aliases();
     printer_start();
     calendar_start();
     weather_start();

@@ -210,3 +210,20 @@ enum Transport: String, CaseIterable, Identifiable {
         }
     }
 }
+
+struct HomeDevice: Decodable, Identifiable {
+    let id: String
+    let name: String
+    let room: String
+    let hubName: String
+    let hubRoom: String
+    let light: Bool
+    let on: Bool
+    let reachable: Bool
+
+    var renamed: Bool { name != hubName || room != hubRoom }
+}
+
+struct HomeDeviceList: Decodable {
+    let devices: [HomeDevice]
+}

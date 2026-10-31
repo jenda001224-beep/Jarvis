@@ -205,6 +205,15 @@ struct DeviceView: View {
                 }
             }
             NavigationLink {
+                HomeDevicesView()
+            } label: {
+                LabeledContent {
+                    Text("\(state.hub.devices)").foregroundStyle(Theme.muted)
+                } label: {
+                    Label("Světla a zásuvky", systemImage: "lightbulb.2")
+                }
+            }
+            NavigationLink {
                 TravelSettings(state: state)
             } label: {
                 LabeledContent {
