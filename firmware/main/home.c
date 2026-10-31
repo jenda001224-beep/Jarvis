@@ -89,6 +89,7 @@ static bool built;
 static void build_pills(const home_data_t *data);
 static void on_today(lv_event_t *event);
 static void on_media(lv_event_t *event);
+static void on_weather(lv_event_t *event);
 static lv_obj_t *open_list_sheet(const char *title);
 
 static void style_panel(lv_obj_t *object, int radius)
@@ -843,6 +844,29 @@ static lv_obj_t *open_list_sheet(const char *title)
     return panel;
 }
 
+static void on_weather(lv_event_t *event)
+{
+    if (shown.day_count == 0) {
+        return;
+    }
+    open_list_sheet("Počasí");
+    lv_obj_t *list = sheet_list;
+    for (int i = 0; i < shown.day_count; i++) {
+        const home_day_t *day = &shown.days[i];
+        lv_obj_t *row = make_today_row(list);
+        lv_obj_set_height(row, 58);
+        lv_obj_t *name = make_row_text(row, COLOR_TEXT, day->name);
+        lv_obj_set_flex_grow(name, 1);
+        make_label(row, font.icon, COLOR_ACCENT, sky_glyph(day->sky));
+        if (day->rain > 0) {
+            lv_obj_t *rain = make_label(row, font.small, COLOR_MUTED, "");
+            lv_label_set_text_fmt(rain, "%d %%", day->rain);
+        }
+        lv_obj_t *range = make_label(row, font.body, COLOR_TEXT, "");
+        lv_label_set_text_fmt(range, "%d° / %d°", day->high, day->low);
+    }
+}
+
 static void on_media(lv_event_t *event)
 {
     open_list_sheet("Přehrávání");
@@ -1083,6 +1107,13 @@ lv_obj_t *home_create(lv_obj_t *parent, const home_fonts_t *fonts, const home_ac
     weather_text = make_label(root, font.caption, COLOR_MUTED, "");
     lv_obj_set_style_text_letter_space(weather_text, 3, 0);
     lv_obj_align(weather_text, LV_ALIGN_TOP_RIGHT, -SIDE, 108);
+    lv_obj_t *weather_area = lv_obj_create(root);
+    lv_obj_remove_style_all(weather_area);
+    lv_obj_set_size(weather_area, 190, 96);
+    lv_obj_set_pos(weather_area, 480 - SIDE - 190, 30);
+    lv_obj_add_flag(weather_area, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(weather_area, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(weather_area, on_weather, LV_EVENT_CLICKED, NULL);
 
     pill_row = lv_obj_create(root);
     lv_obj_remove_style_all(pill_row);

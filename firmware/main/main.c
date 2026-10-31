@@ -1404,6 +1404,30 @@ static void fill_today(home_data_t *data, int64_t now)
     }
 }
 
+static void fill_forecast(home_data_t *data)
+{
+    static const char *const NAMES[] = {"Neděle", "Pondělí", "Úterý", "Středa", "Čtvrtek", "Pátek", "Sobota"};
+    static EXTERNAL_RAM meteo_day_t days[HOME_DAYS];
+    int count = weather_days(days, HOME_DAYS);
+    time_t now = time(NULL);
+    struct tm today;
+    localtime_r(&now, &today);
+    for (int i = 0; i < count; i++) {
+        struct tm date = {.tm_year = days[i].year - 1900, .tm_mon = days[i].month - 1, .tm_mday = days[i].day, .tm_hour = 12};
+        mktime(&date);
+        int ahead = (date.tm_yday - today.tm_yday + 366) % 366;
+        if (date.tm_year == today.tm_year && date.tm_yday < today.tm_yday) {
+            continue;
+        }
+        home_day_t *day = &data->days[data->day_count++];
+        strlcpy(day->name, ahead == 0 ? "Dnes" : ahead == 1 ? "Zítra" : NAMES[date.tm_wday % 7], sizeof(day->name));
+        day->sky = days[i].code;
+        day->high = days[i].high;
+        day->low = days[i].low;
+        day->rain = days[i].rain;
+    }
+}
+
 static void fill_notices(home_data_t *data)
 {
     static EXTERNAL_RAM notice_t notices[HOME_NOTICES];
@@ -1451,6 +1475,7 @@ static void update_home(int64_t now)
     fill_today(&data, now);
     fill_notices(&data);
     media_title(data.playing, sizeof(data.playing));
+    fill_forecast(&data);
     switch (ikea_state()) {
     case IKEA_UNPAIRED:
         data.hub = HOME_HUB_OFFER;

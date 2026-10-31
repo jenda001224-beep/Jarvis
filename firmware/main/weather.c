@@ -10,6 +10,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "geo.h"
+#include "memory.h"
 #include "meteo.h"
 #include "net.h"
 #include "settings.h"
@@ -89,6 +90,10 @@ static char *forecast(const char *place, int days)
 
 #define VALID_TIME 1600000000
 
+#define FORECAST_DAYS 5
+
+static EXTERNAL_RAM meteo_day_t days[FORECAST_DAYS];
+static volatile int day_count;
 static volatile bool rain_known;
 static volatile time_t rain_at;
 static volatile int sunrise_minutes = 7 * 60;
@@ -102,7 +107,7 @@ static void weather_task(void *arg)
             continue;
         }
         xSemaphoreTake(lock, portMAX_DELAY);
-        char *body = forecast(settings_get()->place, 1);
+        char *body = forecast(settings_get()->place, FORECAST_DAYS);
         int celsius = 0;
         int code = 0;
         bool found = body && meteo_current(body, strlen(body), &celsius, &code);
@@ -111,6 +116,7 @@ static void weather_task(void *arg)
             int rain_in = meteo_rain_in(body, length);
             rain_known = time(NULL) > VALID_TIME;
             rain_at = rain_in > 0 ? time(NULL) + rain_in * 60 : 0;
+            day_count = meteo_days(body, length, days, FORECAST_DAYS);
             int rise;
             int set;
             if (meteo_sun(body, length, &rise, &set)) {
@@ -135,6 +141,18 @@ void weather_start(void)
     if (lock) {
         xTaskCreatePinnedToCoreWithCaps(weather_task, "weather", 12288, NULL, 2, NULL, 0, MALLOC_CAP_SPIRAM);
     }
+}
+
+int weather_days(meteo_day_t *out, int capacity)
+{
+    if (!lock) {
+        return 0;
+    }
+    xSemaphoreTake(lock, portMAX_DELAY);
+    int count = day_count < capacity ? day_count : capacity;
+    memcpy(out, days, (size_t) count * sizeof(meteo_day_t));
+    xSemaphoreGive(lock);
+    return count;
 }
 
 bool weather_rain_at(time_t *when)

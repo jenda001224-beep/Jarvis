@@ -208,3 +208,32 @@ bool meteo_sun(const char *json, size_t length, int *sunrise_minutes, int *sunse
     cJSON_Delete(root);
     return found;
 }
+
+int meteo_days(const char *json, size_t length, meteo_day_t *out, int capacity)
+{
+    cJSON *root = cJSON_ParseWithLength(json, length);
+    const cJSON *daily = cJSON_GetObjectItemCaseSensitive(root, "daily");
+    const cJSON *dates = daily ? cJSON_GetObjectItemCaseSensitive(daily, "time") : NULL;
+    int count = 0;
+    for (int i = 0; cJSON_IsArray(dates) && i < cJSON_GetArraySize(dates) && count < capacity; i++) {
+        const cJSON *date = cJSON_GetArrayItem(dates, i);
+        meteo_day_t day = {0};
+        double code;
+        double high;
+        double low;
+        double rain = 0;
+        if (!cJSON_IsString(date) || sscanf(date->valuestring, "%d-%d-%d", &day.year, &day.month, &day.day) != 3 ||
+            !value_at(daily, "weather_code", i, &code) || !value_at(daily, "temperature_2m_max", i, &high) ||
+            !value_at(daily, "temperature_2m_min", i, &low)) {
+            continue;
+        }
+        value_at(daily, "precipitation_probability_max", i, &rain);
+        day.code = (int) code;
+        day.high = (int) round(high);
+        day.low = (int) round(low);
+        day.rain = (int) round(rain);
+        out[count++] = day;
+    }
+    cJSON_Delete(root);
+    return count;
+}

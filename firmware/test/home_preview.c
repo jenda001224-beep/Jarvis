@@ -177,6 +177,12 @@ int main(int argc, char **argv)
     data.todo_items[1] = (home_todo_t) {.id = 2, .text = "Koupit mléko"};
     data.todo_items[2] = (home_todo_t) {.id = 3, .done = true, .text = "Zavolat doktorovi"};
     snprintf(data.playing, sizeof(data.playing), "Radiožurnál");
+    data.day_count = 5;
+    data.days[0] = (home_day_t) {.name = "Dnes", .sky = 3, .high = 12, .low = 5, .rain = 10};
+    data.days[1] = (home_day_t) {.name = "Zítra", .sky = 61, .high = 9, .low = 3, .rain = 80};
+    data.days[2] = (home_day_t) {.name = "Pondělí", .sky = 2, .high = 11, .low = 2};
+    data.days[3] = (home_day_t) {.name = "Úterý", .sky = 0, .high = 14, .low = 4};
+    data.days[4] = (home_day_t) {.name = "Středa", .sky = 71, .high = -1, .low = -6, .rain = 45};
     data.unread = 2;
     data.notice_count = 2;
     data.notices[0] = (home_notice_t) {.when = "8:20", .text = "Asi za 45 minut začne pršet."};
@@ -209,6 +215,19 @@ int main(int argc, char **argv)
     script = close_today;
     script_length = 2;
     run(600);
+    static const touch_t open_weather[] = {{1500, 400, 70, true}, {1560, 400, 70, false}};
+    script = open_weather;
+    script_length = 2;
+    run(600);
+    save(folder, "weather");
+    static const touch_t close_weather[] = {{2000, 46, 46, true}, {2060, 46, 46, false}};
+    script = close_weather;
+    script_length = 2;
+    run(600);
+    clock_ms = 0;
+    script = NULL;
+    script_length = 0;
+
     static const touch_t open_media[] = {{1500, 356, 440, true}, {1560, 356, 440, false}};
     script = open_media;
     script_length = 2;

@@ -509,6 +509,15 @@ static void test_rain_and_sun(void)
     int set = 0;
     assert(meteo_sun(DAY, strlen(DAY), &rise, &set) && rise == 407 && set == 1002);
     assert(!meteo_sun("{\"daily\":{\"sunrise\":[\"bad\"]}}", 29, &rise, &set));
+    static const char WEEK[] = "{\"daily\":{\"time\":[\"2026-10-31\",\"2026-11-01\",\"bad\"],\"weather_code\":[3,61,0],"
+                               "\"temperature_2m_max\":[12.4,9.6,1],\"temperature_2m_min\":[5.5,-0.4,1],"
+                               "\"precipitation_probability_max\":[10,80,0]}}";
+    meteo_day_t days[4];
+    assert(meteo_days(WEEK, strlen(WEEK), days, 4) == 2);
+    assert(days[0].year == 2026 && days[0].month == 10 && days[0].day == 31 && days[0].code == 3 && days[0].high == 12 && days[0].low == 6);
+    assert(days[1].day == 1 && days[1].rain == 80 && days[1].low == 0);
+    assert(meteo_days(WEEK, strlen(WEEK), days, 1) == 1);
+    assert(meteo_days("{}", 2, days, 4) == 0);
 }
 
 static char dav_collected[1024];

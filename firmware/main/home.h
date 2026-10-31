@@ -41,6 +41,7 @@ typedef struct {
 #define HOME_AGENDA 8
 #define HOME_NOTICES 6
 #define HOME_NOISES 3
+#define HOME_DAYS 5
 
 typedef struct {
     uint32_t id;
@@ -65,6 +66,14 @@ typedef struct {
     char when[8];
     char text[200];
 } home_notice_t;
+
+typedef struct {
+    char name[12];
+    int sky;
+    int high;
+    int low;
+    int rain;
+} home_day_t;
 
 typedef struct {
     int volume;
@@ -100,6 +109,8 @@ typedef struct {
     int agenda_count;
     home_event_t agenda[HOME_AGENDA];
     char playing[64];
+    int day_count;
+    home_day_t days[HOME_DAYS];
     int unread;
     int notice_count;
     home_notice_t notices[HOME_NOTICES];

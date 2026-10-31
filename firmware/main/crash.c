@@ -31,6 +31,11 @@ bool crash_check(void)
 {
     size_t stored = settings_read_blob(NVS_CRASH, text, sizeof(text) - 1);
     text[stored] = 0;
+    const char *version = esp_app_get_description()->version;
+    if (stored > 0 && strncmp(text, version, strlen(version)) != 0) {
+        text[0] = 0;
+        settings_write_blob(NVS_CRASH, text, 0);
+    }
     esp_reset_reason_t reason = esp_reset_reason();
     bool crashed = reason == ESP_RST_PANIC || reason == ESP_RST_INT_WDT || reason == ESP_RST_TASK_WDT || reason == ESP_RST_WDT;
     if (esp_core_dump_image_check() != ESP_OK) {
