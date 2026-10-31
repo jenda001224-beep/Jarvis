@@ -192,6 +192,10 @@ static const char HOME[] =
     "(teplá 2700, denní 4000, studená 6500). Když pán neřekne, které světlo myslí, vyber všechna světla "
     "v místnosti, o které mluví, a když neřekne ani místnost, vyber všechna světla.";
 
+static const char NO_PRINTER[] =
+    "Stav 3D tiskárny teď nevidíš, protože na displeji chybí její přístupový kód. Když se pán ptá na tisk, řekni mu to a že ho "
+    "zadá v aplikaci Jarvis v části Zařízení, Tiskárna. Zásuvku tiskárny můžeš ovládat, pokud ji máš mezi zařízeními.";
+
 static const char PRINTER[] =
     "Pán má 3D tiskárnu Bambu Lab A1. Na otázky o tisku nebo tiskárně zavolej printer_status a řekni jen to, na co "
     "se ptá: jak je tisk daleko a kolik zbývá, nebo proč tiskárna stojí. Popisy problémů přijdou anglicky; řekni "
@@ -805,9 +809,7 @@ static char *build_instruction(bool with_home, const reminder_t *unheard, int un
             append(&text, " „%s“ (mělo zaznít %s).", unheard[i].text, moment + 11);
         }
     }
-    if (printer_configured()) {
-        append(&text, "\n\n%s", PRINTER);
-    }
+    append(&text, "\n\n%s", printer_configured() ? PRINTER : NO_PRINTER);
     if (calendar_configured()) {
         char *today = allocate_external(2048);
         append(&text, "\n\n%s", CALENDAR);

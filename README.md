@@ -73,7 +73,7 @@ Bez hubu funguje všechno ostatní, jen světla neumí.
 
 ## Tiskárna Bambu Lab
 
-Do flasheru opiš přístupový kód z displeje tiskárny (Nastavení → WLAN → Access Code). Jarvis si tiskárnu v síti najde sám, připojí se k ní po místní síti a jen čte; nic na ní neovládá. Když tiskne, ukazuje vpravo nahoře na displeji procenta a zbývající čas.
+Do aplikace (Zařízení, Tiskárna) nebo do flasheru opiš přístupový kód z displeje tiskárny (Nastavení, třetí stránka, LAN Only Mode, Access Code). Jarvis si tiskárnu v síti najde sám, připojí se k ní po místní síti a jen čte; nic na ní neovládá. Když tiskne, ukazuje vpravo nahoře na displeji procenta a zbývající čas.
 
 - „Jarvisi, jak je na tom tisk?“ — procenta, zbývající čas, vrstva
 - „Jarvisi, proč se tiskárna zastavila?“ — důvod pauzy a chybová hlášení; jejich popis si deska stáhne od Bambu Lab anglicky a Jarvis ho řekne česky

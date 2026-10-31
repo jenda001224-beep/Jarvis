@@ -164,3 +164,52 @@ struct BluetoothView: View {
         .navigationTitle("Bluetooth reproduktor")
     }
 }
+
+struct PrinterSettings: View {
+    let state: DeviceState
+    @State private var code = ""
+    @State private var address = ""
+    @State private var serial = ""
+
+    private var clean: String { code.trimmingCharacters(in: .whitespaces) }
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("Stav", value: state.settings.printer ? "Kód je uložený" : "Bez kódu")
+                SecureField("Přístupový kód", text: $code)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            } footer: {
+                Text("Kód je na displeji tiskárny: Nastavení, třetí stránka, LAN Only Mode, Access Code. Zkus ho nejdřív bez zapnutí LAN Only, jinak se tiskárna odpojí od cloudu Bambu. Když kód neukazuje nebo ho Jarvis nepřijme, LAN Only zapni. Tiskárna musí být na stejné Wi-Fi.")
+            }
+            Section {
+                TextField("IP adresa", text: $address)
+                    .keyboardType(.numbersAndPunctuation)
+                    .autocorrectionDisabled()
+                TextField("Sériové číslo", text: $serial)
+                    .textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled()
+            } header: {
+                Text("Jen když se tiskárna nenajde sama")
+            } footer: {
+                RestartNote()
+            }
+            if state.settings.printer {
+                Section {
+                    SaveButton(fields: { ["printer_code": "", "printer_ip": "", "printer_serial": ""] })
+                        .foregroundStyle(.red)
+                } footer: {
+                    Text("Smaže kód z displeje.")
+                }
+            }
+        }
+        .navigationTitle("Tiskárna")
+        .toolbar {
+            SaveButton(fields: {
+                ["printer_code": clean, "printer_ip": address.trimmingCharacters(in: .whitespaces),
+                 "printer_serial": serial.trimmingCharacters(in: .whitespaces)]
+            }, disabled: clean.isEmpty)
+        }
+    }
+}

@@ -292,6 +292,15 @@ struct DeviceView: View {
                 }
             }
             NavigationLink {
+                PrinterSettings(state: state)
+            } label: {
+                LabeledContent {
+                    Text(state.settings.printer ? "Nastavená" : "Nenastavená").foregroundStyle(Theme.muted)
+                } label: {
+                    Label("Tiskárna", systemImage: "printer")
+                }
+            }
+            NavigationLink {
                 AppleCalendarView(state: state)
             } label: {
                 LabeledContent {
