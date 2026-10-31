@@ -14,6 +14,9 @@
 #include "cloud.h"
 #include "calendar.h"
 #include "console.h"
+#include "crash.h"
+#include "logbuf.h"
+#include "update.h"
 #include "control.h"
 #include "display.h"
 #include "esp_app_desc.h"
@@ -98,6 +101,7 @@ typedef enum {
     STATE_LISTENING,
     STATE_SPEAKING,
     STATE_ERROR,
+    STATE_UPDATING,
 } state_t;
 
 typedef enum {
@@ -141,7 +145,7 @@ static const char PERSONA[] =
     "get_weather. Když se pán neptá na konkrétní místo, myslí %s. Když něco nevíš nebo se něco nepovedlo, řekni to "
     "krátce a na rovinu. Nikdy netvrď, že jsi něco udělal nebo zjistil, dokud ti to nástroj nepotvrdí. Rádio, podcasty a šum na "
     "usínání pouštíš nástroji play_radio, play_podcast a play_noise, zastavíš je stop_media; hrát začnou, až domluvíš. "
-    "Hlasitost měníš nástrojem set_volume. Hudbu ze Spotify ani Apple Music zatím pouštět neumíš; když o ni pán požádá, "
+    "Hlasitost měníš nástrojem set_volume. Když se pán rozloučí nebo poděkuje a nic dalšího nechce, odpověz krátce a zavolej end_conversation. Hudbu ze Spotify ani Apple Music zatím pouštět neumíš; když o ni pán požádá, "
     "řekni to jednou větou a nabídni rádio. "
     "Tvůj displej umí posvítit: když pán řekne, ať mu dáš trochu světla, posvítíš nebo rozsvítíš displej, zavolej "
     "display_light s on true. Když řekne, ať displej nebo to světlo zhasneš, zavolej display_light s on false. "
@@ -235,6 +239,12 @@ static const char MEDIA_FUNCTIONS[] =
     "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{}}},"
     "{\"name\":\"set_volume\",\"description\":\"Nastaví hlasitost v procentech, nebo ji změní o change.\","
     "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{\"level\":{\"type\":\"INTEGER\"},\"change\":{\"type\":\"INTEGER\"}}}}";
+
+static const char UPDATE_FUNCTION[] =
+    "{\"name\":\"system_update\",\"description\":\"Zjistí, jestli je nová verze tvého programu. S install true ji nainstaluje, jen když o to pán výslovně požádá.\","
+    "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{\"install\":{\"type\":\"BOOLEAN\"}}}},"
+    "{\"name\":\"end_conversation\",\"description\":\"Ukončí rozhovor, až domluvíš. Zavolej, když se pán rozloučí, poděkuje a nic dalšího nechce, nebo řekne, že je to všechno.\","
+    "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{}}}";
 
 static const char QUIET_FUNCTION[] =
     "{\"name\":\"set_quiet\",\"description\":\"Na daný počet minut umlčí tvůj hlas a zvuky, odpovědi se jen ukazují na displeji. "
@@ -610,14 +620,20 @@ static char *tool_cancel_reminder(const cJSON *args)
 }
 
 static volatile int quiet_requested = -1;
+static volatile bool conversation_over;
 static volatile int volume_requested = -1;
 static home_prefs_t prefs;
+
+static int effective_volume(void)
+{
+    return ui_night() && prefs.night_volume < prefs.volume ? prefs.night_volume : prefs.volume;
+}
 
 static char *tool_set_volume(const cJSON *args)
 {
     const cJSON *level = cJSON_GetObjectItemCaseSensitive(args, "level");
     const cJSON *change = cJSON_GetObjectItemCaseSensitive(args, "change");
-    int volume = prefs.volume;
+    int volume = effective_volume();
     if (cJSON_IsNumber(level)) {
         volume = level->valueint;
     } else if (cJSON_IsNumber(change)) {
@@ -655,6 +671,11 @@ static char *run_tool(const tool_call_t *call)
         result = tool_display(args);
     } else if (strcmp(call->name, "set_quiet") == 0) {
         result = tool_set_quiet(args);
+    } else if (strcmp(call->name, "system_update") == 0) {
+        result = update_tool(call->args);
+    } else if (strcmp(call->name, "end_conversation") == 0) {
+        conversation_over = true;
+        result = reply("result", "rozhovor skončí, jakmile domluvíš");
     } else if (strcmp(call->name, "set_volume") == 0) {
         result = tool_set_volume(args);
     } else if (strcmp(call->name, "play_radio") == 0) {
@@ -849,8 +870,8 @@ static char *build_instruction(bool with_home, const reminder_t *unheard, int un
 static char *build_functions(bool with_home)
 {
     text_t text = {0};
-    append(&text, "[%s,%s,%s,%s,%s,%s", DISPLAY_FUNCTION, QUIET_FUNCTION, MEDIA_FUNCTIONS, REMINDER_FUNCTIONS, LIST_FUNCTIONS,
-           WEATHER_FUNCTION);
+    append(&text, "[%s,%s,%s,%s,%s,%s,%s", DISPLAY_FUNCTION, QUIET_FUNCTION, UPDATE_FUNCTION, MEDIA_FUNCTIONS, REMINDER_FUNCTIONS,
+           LIST_FUNCTIONS, WEATHER_FUNCTION);
     if (recall_enabled()) {
         append(&text, ",%s", MEMORY_FUNCTIONS);
     }
@@ -1024,10 +1045,22 @@ static void watch_quiet(void)
     apply_muting();
     if (volume_requested >= 0) {
         home_prefs_t chosen = prefs;
-        chosen.volume = volume_requested;
+        if (ui_night()) {
+            chosen.night_volume = volume_requested;
+        } else {
+            chosen.volume = volume_requested;
+        }
         volume_requested = -1;
         apply_prefs(chosen);
         ui_set_prefs(&prefs);
+    }
+    static int applied_volume = -1;
+    if (ringing) {
+        applied_volume = -1;
+    } else if (effective_volume() != applied_volume) {
+        applied_volume = effective_volume();
+        audio_set_volume(applied_volume);
+        ESP_LOGI(TAG, "volume %d", applied_volume);
     }
 }
 
@@ -1057,6 +1090,7 @@ static void start_session(session_kind_t kind)
         wake_clear_capture();
     }
     session_kind = kind;
+    conversation_over = false;
     media_hold(true);
     recall_session_begin();
     audio_prepare();
@@ -1232,13 +1266,16 @@ static void load_prefs(void)
     prefs.night = stored_value("night", 1, 0, 1);
     prefs.night_from = stored_minutes("night_from", 23 * 60);
     prefs.night_to = stored_minutes("night_to", 7 * 60);
+    prefs.night_volume = stored_value("night_volume", 35, 0, 100);
 }
 
 static void apply_prefs(home_prefs_t chosen)
 {
     const settings_t *settings = settings_get();
+    if (chosen.night_volume != prefs.night_volume) {
+        settings_write_number("night_volume", (uint32_t) chosen.night_volume + 1);
+    }
     if (chosen.volume != prefs.volume) {
-        audio_set_volume(chosen.volume);
         settings_write_number("volume", paired_value(settings->volume, chosen.volume));
     }
     if (chosen.announce != prefs.announce) {
@@ -1549,7 +1586,6 @@ static bool ring_greets;
 static int ring_limit_ms;
 static int64_t ring_since;
 static int64_t ring_last;
-static int ring_restore_volume = -1;
 static alarm_t ring_alarm;
 
 static void copy_tokens(char out[API_TOKENS][API_TOKEN_LENGTH + 1])
@@ -1606,10 +1642,7 @@ static void start_ringing(const char *big, const char *label, bool greets, int l
     ring_limit_ms = limit_ms;
     ring_since = now_ms();
     ring_last = 0;
-    if (prefs.volume < ALARM_MIN_VOLUME) {
-        ring_restore_volume = prefs.volume;
-        audio_set_volume(ALARM_MIN_VOLUME);
-    }
+    audio_set_volume(prefs.volume > ALARM_MIN_VOLUME ? prefs.volume : ALARM_MIN_VOLUME);
     ui_show_alarm(big, label);
 }
 
@@ -1636,10 +1669,6 @@ static void stop_ringing(bool greet)
     ringing = false;
     audio_flush();
     apply_muting();
-    if (ring_restore_volume >= 0) {
-        audio_set_volume(ring_restore_volume);
-        ring_restore_volume = -1;
-    }
     ui_show_alarm(NULL, NULL);
     media_hold(state != STATE_IDLE);
     ESP_LOGI(TAG, "ringing stopped%s", greet && ring_greets ? ", greeting" : "");
@@ -1662,11 +1691,12 @@ static void watch_alarms(int64_t now)
             ring_waiting = true;
         }
     }
-    if (ring_waiting && state == STATE_IDLE) {
+    bool free_to_ring = state == STATE_IDLE || state == STATE_OFFLINE;
+    if (ring_waiting && free_to_ring) {
         ring_alarm_now();
     }
     countdown_t finished;
-    if (!ringing && state == STATE_IDLE && lists_due_timer(&finished)) {
+    if (!ringing && free_to_ring && lists_due_timer(&finished)) {
         ring_timer_now(&finished);
     }
     if (!ringing) {
@@ -1707,7 +1737,7 @@ static void next_alarm_text(char *out, size_t capacity)
 
 static const char *state_name(void)
 {
-    static const char *const NAMES[] = {"offline", "idle", "connecting", "listening", "speaking", "error"};
+    static const char *const NAMES[] = {"offline", "idle", "connecting", "listening", "speaking", "error", "updating"};
     return ringing ? "ringing" : NAMES[state];
 }
 
@@ -1727,6 +1757,8 @@ static void api_error(api_call_t *call, int status, const char *message)
 }
 
 static cJSON *state_json(void);
+
+static volatile bool update_requested;
 
 static cJSON *reply_section(const char *path)
 {
@@ -1780,11 +1812,20 @@ static void api_chat(api_call_t *call, const cJSON *body)
             return;
         }
         bool with_home = ikea_state() == IKEA_READY && ikea_device_count() > 0;
-        session_kind = state == STATE_IDLE ? SESSION_TEXT : session_kind;
+        session_kind_t kept_kind = session_kind;
+        bool kept_delivering = delivering_notices;
+        session_kind = SESSION_TEXT;
         char *instruction = build_instruction(with_home, NULL, 0);
         char *functions = build_functions(with_home);
-        delivering_notices = false;
-        if (!instruction || !functions || !chat_send(text->valuestring, instruction, functions)) {
+        session_kind = kept_kind;
+        delivering_notices = kept_delivering;
+        if (!instruction || !functions) {
+            free(instruction);
+            free(functions);
+            api_error(call, 503, "chat busy");
+            return;
+        }
+        if (!chat_send(text->valuestring, instruction, functions)) {
             api_error(call, 503, "chat busy");
             return;
         }
@@ -1792,6 +1833,91 @@ static void api_chat(api_call_t *call, const cJSON *body)
         chat_clear();
     }
     call->reply = json_reply(chat_json());
+}
+
+static void begin_update(const char *url, size_t size)
+{
+    if (state != STATE_IDLE || ringing || !update_begin(url, size)) {
+        return;
+    }
+    media_stop();
+    wake_set_armed(false);
+    enter(STATE_UPDATING);
+    ui_show_update(0);
+}
+
+static void api_update(api_call_t *call, const cJSON *body)
+{
+    if (call->method == API_POST) {
+        const cJSON *install = cJSON_GetObjectItemCaseSensitive(body, "install");
+        const cJSON *url = cJSON_GetObjectItemCaseSensitive(body, "url");
+        const cJSON *size = cJSON_GetObjectItemCaseSensitive(body, "size");
+        if (cJSON_IsTrue(install)) {
+            bool custom = cJSON_IsString(url) && call->token[0];
+            begin_update(custom ? url->valuestring : NULL, custom && cJSON_IsNumber(size) ? (size_t) size->valuedouble : 0);
+            if (state != STATE_UPDATING) {
+                api_error(call, 409, "cannot start the update now");
+                return;
+            }
+        } else {
+            update_check_soon();
+        }
+    }
+    call->reply = json_reply(update_json());
+}
+
+static void watch_update(void)
+{
+    if (update_take_request()) {
+        update_requested = true;
+    }
+    if (update_requested && state == STATE_IDLE) {
+        update_requested = false;
+        begin_update(NULL, 0);
+    }
+    update_tick(net_connected());
+    if (state != STATE_UPDATING) {
+        return;
+    }
+    static int shown = -1;
+    int percent = update_percent();
+    if (percent / 5 != shown) {
+        shown = percent / 5;
+        ui_show_update(percent);
+    }
+    update_phase_t phase = update_phase();
+    if (phase == UPDATE_DONE) {
+        restart_at = now_ms() + RESTART_DELAY_MS;
+        enter(STATE_OFFLINE);
+    } else if (phase == UPDATE_FAILED) {
+        cJSON *status = update_json();
+        const cJSON *problem = cJSON_GetObjectItemCaseSensitive(status, "problem");
+        watch_notice("systém", problem->valuestring, true);
+        cJSON_Delete(status);
+        update_clear_failure();
+        shown = -1;
+        ui_show_update(-1);
+        go_idle();
+    }
+}
+
+static void api_log(api_call_t *call, const cJSON *body)
+{
+    enum { LOG_REPLY = 12288 };
+    char *text = heap_caps_malloc(LOG_REPLY, MALLOC_CAP_SPIRAM);
+    if (!text) {
+        api_error(call, 503, "busy");
+        return;
+    }
+    const cJSON *after = cJSON_GetObjectItemCaseSensitive(body, "after");
+    uint32_t next = 0;
+    uint32_t from = cJSON_IsNumber(after) ? (uint32_t) after->valuedouble : 0;
+    logbuf_read(from, text, LOG_REPLY, &next);
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddNumberToObject(root, "next", next);
+    cJSON_AddStringToObject(root, "text", text);
+    free(text);
+    call->reply = json_reply(root);
 }
 
 static void api_media(api_call_t *call, const cJSON *body)
@@ -1913,6 +2039,26 @@ static void api_memory(api_call_t *call, const char *path, const cJSON *body)
     }
 }
 
+static const char *reset_name(void)
+{
+    switch (esp_reset_reason()) {
+    case ESP_RST_POWERON:
+        return "power";
+    case ESP_RST_SW:
+        return "restart";
+    case ESP_RST_PANIC:
+        return "crash";
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT:
+        return "watchdog";
+    case ESP_RST_BROWNOUT:
+        return "brownout";
+    default:
+        return "other";
+    }
+}
+
 static cJSON *prefs_json(void)
 {
     cJSON *item = cJSON_CreateObject();
@@ -1926,6 +2072,7 @@ static cJSON *prefs_json(void)
     cJSON_AddBoolToObject(item, "night", prefs.night);
     cJSON_AddNumberToObject(item, "night_from", prefs.night_from);
     cJSON_AddNumberToObject(item, "night_to", prefs.night_to);
+    cJSON_AddNumberToObject(item, "night_volume", prefs.night_volume);
     return item;
 }
 
@@ -1940,6 +2087,9 @@ static cJSON *state_json(void)
     cJSON_AddNumberToObject(root, "uptime", (double) (esp_timer_get_time() / 1000000));
     cJSON_AddBoolToObject(root, "muted", audio_muted());
     cJSON_AddNumberToObject(root, "quiet_until", quiet_until);
+    cJSON_AddStringToObject(root, "reset", reset_name());
+    cJSON_AddStringToObject(root, "crash", crash_text());
+    cJSON_AddBoolToObject(root, "update_available", update_available());
     cJSON_AddBoolToObject(root, "away", watch_away());
     cJSON *cloud = cJSON_AddObjectToObject(root, "cloud");
     cJSON_AddBoolToObject(cloud, "configured", cloud_configured());
@@ -1955,6 +2105,8 @@ static cJSON *state_json(void)
     cJSON *memory = cJSON_AddObjectToObject(root, "memory");
     cJSON_AddNumberToObject(memory, "internal", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     cJSON_AddNumberToObject(memory, "external", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    cJSON_AddNumberToObject(memory, "lowest", heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+    cJSON_AddNumberToObject(memory, "largest", heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
     cJSON_AddItemToObject(root, "prefs", prefs_json());
     cJSON *stored = cJSON_AddObjectToObject(root, "settings");
     cJSON_AddStringToObject(stored, "voice", settings->voice);
@@ -2016,7 +2168,8 @@ static void api_prefs(api_call_t *call, const cJSON *body)
                  read_int(body, "sensitivity", 0, 2, &chosen.sensitivity) && read_int(body, "announce", 0, 7, &chosen.announce) &&
                  read_int(body, "night", 0, 1, &chosen.night) &&
                  read_int(body, "night_from", 0, 24 * 60 - 1, &chosen.night_from) &&
-                 read_int(body, "night_to", 0, 24 * 60 - 1, &chosen.night_to);
+                 read_int(body, "night_to", 0, 24 * 60 - 1, &chosen.night_to) &&
+                 read_int(body, "night_volume", 0, 100, &chosen.night_volume);
     if (!valid) {
         api_error(call, 400, "bad preference");
         return;
@@ -2045,6 +2198,7 @@ static cJSON *devices_json(void)
         cJSON_AddBoolToObject(item, "light", found[i].light);
         cJSON_AddBoolToObject(item, "on", found[i].on);
         cJSON_AddBoolToObject(item, "reachable", found[i].reachable);
+        cJSON_AddNumberToObject(item, "level", found[i].level);
         cJSON_AddItemToArray(list, item);
     }
     return root;
@@ -2070,6 +2224,18 @@ static bool set_alias_text(const cJSON *item, char *target, size_t capacity, boo
 
 static void api_devices(api_call_t *call, const char *id, const cJSON *body)
 {
+    if (call->method == API_PATCH && id[0]) {
+        const cJSON *on = cJSON_GetObjectItemCaseSensitive(body, "on");
+        const cJSON *level = cJSON_GetObjectItemCaseSensitive(body, "level");
+        if (cJSON_IsBool(on)) {
+            control_power(id, cJSON_IsTrue(on));
+        }
+        if (cJSON_IsNumber(level) && level->valueint >= 1 && level->valueint <= 100) {
+            control_brightness(id, level->valueint);
+        }
+        call->reply = json_reply(devices_json());
+        return;
+    }
     if (call->method == API_PUT && id[0] && strlen(id) < sizeof(aliases[0].id)) {
         int index = 0;
         while (index < alias_count && strcmp(aliases[index].id, id) != 0) {
@@ -2257,6 +2423,17 @@ static void handle_api(api_call_t *call)
         api_notices(call, path, body);
     } else if (strcmp(path, "/api/arrived") == 0 && call->method == API_POST) {
         api_arrived(call);
+    } else if (strcmp(path, "/api/update") == 0) {
+        api_update(call, body);
+    } else if (strcmp(path, "/api/log") == 0) {
+        api_log(call, body);
+    } else if (strcmp(path, "/api/console") == 0 && call->method == API_POST) {
+        const cJSON *line = cJSON_GetObjectItemCaseSensitive(body, "line");
+        if (cJSON_IsString(line) && line->valuestring[0] && strlen(line->valuestring) < CONSOLE_LINE && console_inject(line->valuestring)) {
+            call->reply = json_reply(cJSON_CreateObject());
+        } else {
+            api_error(call, 400, "bad line");
+        }
     } else if (strcmp(path, "/api/media") == 0) {
         api_media(call, body);
     } else if (strcmp(path, "/api/chat") == 0) {
@@ -2312,6 +2489,9 @@ static void handle(app_event_t event)
     bool in_session = state == STATE_CONNECTING || state == STATE_LISTENING || state == STATE_SPEAKING;
     switch (event) {
     case APP_EVENT_NETWORK:
+        if (state == STATE_UPDATING) {
+            break;
+        }
         if (net_connected() && state == STATE_OFFLINE) {
             go_idle();
         } else if (!net_connected() && state != STATE_OFFLINE) {
@@ -2397,7 +2577,7 @@ static void handle(app_event_t event)
             turn_complete = true;
         } else if (state == STATE_LISTENING) {
             last_activity = now_ms();
-            if (media_waiting()) {
+            if (media_waiting() || conversation_over) {
                 go_idle();
             }
         }
@@ -2516,7 +2696,7 @@ static void acknowledge(int64_t now)
             return;
         }
         ack_pending = false;
-        if (audio_muted() || prefs.volume == 0) {
+        if (audio_muted() || effective_volume() == 0) {
             return;
         }
         uint32_t choice = esp_random() % (sizeof(ACKNOWLEDGEMENTS) / sizeof(ACKNOWLEDGEMENTS[0]));
@@ -2565,6 +2745,7 @@ static void supervise(void)
     report(now);
     show_printer(now);
     update_home(now);
+    watch_update();
     cloud_set_idle(state == STATE_IDLE);
     recall_tick(state == STATE_IDLE && !ringing);
     watch_quiet();
@@ -2613,7 +2794,7 @@ static void supervise(void)
             audio_take_stats(&stats);
             ESP_LOGI(TAG, "reply played: %u ms of speech, longest pause in arrival %u ms, %u dropouts",
                      (unsigned) stats.played_ms, (unsigned) stats.longest_gap_ms, (unsigned) stats.underruns);
-            if (media_waiting()) {
+            if (media_waiting() || conversation_over) {
                 go_idle();
             } else {
                 resume_listening();
@@ -2656,6 +2837,7 @@ void app_main(void)
     ui_set_mode(UI_STARTING, NULL);
     checkpoint("ui");
 
+    logbuf_start();
     bool configured = settings_load();
     load_prefs();
     ui_set_prefs(&prefs);
@@ -2710,6 +2892,10 @@ void app_main(void)
     control_start();
     watch_start();
     media_start();
+    update_start();
+    if (crash_check()) {
+        watch_notice("systém", "Po chybě jsem se sám restartoval.", false);
+    }
     chat_start(chat_tool);
     cloud_start(copy_tokens);
     console_start();

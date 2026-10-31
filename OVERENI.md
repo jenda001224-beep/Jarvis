@@ -2,6 +2,18 @@
 
 Každé tvrzení, na kterém firmware stojí, a z čeho vychází. Stav k 17. 10. 2026.
 
+## Verze 2.7 (31. 10. 2026)
+
+| Zjištění | Stav |
+|---|---|
+| Aktualizace přes Wi-Fi | 3 MB za 23 až 34 s na desce, obě sady oddílů, data v NVS a v paměti zůstala |
+| Návrat po vadné verzi | schválně padající obraz po síti: deska se sama vrátila k předchozí verzi |
+| Záznam pádu | přes coredump na desce, adresy přeložené přes addr2line ukazují přesný řádek (`on_console`, `app_main`) |
+| Aktualizace z GitHub Pages včetně kontroly MD5 | na desce |
+| Výpis a konzole po síti | na desce, bez restartu, ztlumení přežije |
+| Budík a časovač bez Wi-Fi | opravená podmínka, přímo **nezkoušeno** |
+| Noční hlasitost | na desce podle výpisu; poslechem **neověřeno** |
+
 ## Verze 2.6 (31. 10. 2026)
 
 | Zjištění | Stav |

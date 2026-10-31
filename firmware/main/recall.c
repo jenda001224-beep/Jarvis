@@ -673,7 +673,7 @@ void recall_start(void)
         ESP_LOGE(TAG, "starting the memory failed");
         return;
     }
-    if (xTaskCreatePinnedToCoreWithCaps(worker_task, "recall", 10240, NULL, 2, &worker, 0, MALLOC_CAP_SPIRAM) != pdPASS) {
+    if (xTaskCreatePinnedToCoreWithCaps(worker_task, "recall", 16384, NULL, 2, &worker, 0, MALLOC_CAP_SPIRAM) != pdPASS) {
         ESP_LOGE(TAG, "no memory for the recall task");
         return;
     }

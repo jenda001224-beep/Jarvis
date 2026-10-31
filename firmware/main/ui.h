@@ -26,6 +26,7 @@ void ui_append_spoken(const char *text);
 void ui_set_lamp(bool on);
 void ui_show_code(const char *code);
 void ui_show_alarm(const char *clock_text, const char *label);
+void ui_show_update(int percent);
 bool ui_night(void);
 bool ui_lamp(void);
 void ui_home_update(home_data_t *data);

@@ -77,6 +77,7 @@ typedef struct {
     int night_from;
     int night_to;
     int announce;
+    int night_volume;
 } home_prefs_t;
 
 typedef struct {

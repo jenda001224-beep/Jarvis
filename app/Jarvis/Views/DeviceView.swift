@@ -247,6 +247,9 @@ struct DeviceView: View {
             if prefs?.night == true {
                 DatePicker("Od", selection: minutesBinding(\.nightFrom), displayedComponents: .hourAndMinute)
                 DatePicker("Do", selection: minutesBinding(\.nightTo), displayedComponents: .hourAndMinute)
+                LevelRow(title: "Hlasitost v noci", symbol: "speaker.wave.1.fill", range: 0...100,
+                         value: Binding(get: { prefs?.nightVolume ?? 35 }, set: { prefs?.nightVolume = $0 }),
+                         sliding: $sliding, commit: commit)
             }
         } header: {
             Text("Noc")
@@ -339,6 +342,16 @@ struct DeviceView: View {
 
     private func about(_ state: DeviceState) -> some View {
         Section("Informace") {
+            NavigationLink {
+                UpdateView()
+            } label: {
+                LabeledContent {
+                    Text(state.updateAvailable == true ? "Nová verze" : state.version)
+                        .foregroundStyle(state.updateAvailable == true ? Theme.accent : Theme.muted)
+                } label: {
+                    Label("Aktualizace", systemImage: "arrow.down.circle")
+                }
+            }
             LabeledContent("Verze", value: state.version)
             LabeledContent("IP adresa", value: state.network.ip)
             LabeledContent("Běží", value: Duration.seconds(state.uptime).formatted(.units(allowed: [.days, .hours, .minutes],
@@ -347,6 +360,15 @@ struct DeviceView: View {
             LabeledContent("IKEA hub", value: hubText(state.hub))
             LabeledContent("Tiskárna", value: state.settings.printer ? "Nastavená" : "Nenastavená")
             LabeledContent("Kalendáře", value: "\(state.settings.calendars)")
+            if let crash = state.crash, !crash.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Poslední pád")
+                    Text(crash)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(Theme.muted)
+                        .textSelection(.enabled)
+                }
+            }
         }
     }
 

@@ -140,6 +140,25 @@ vyber svůj iPhone a spusť. Doma mluví s displejem přímo po Wi-Fi. Mimo domo
 
 Jednorázové nastavení je v [JAK_ZAPNOUT.md](JAK_ZAPNOUT.md).
 
+## Aktualizace přes Wi-Fi (od verze 2.7)
+
+Displej už nepotřebuje kabel. Jednou denně se podívá, jestli je ve flasheru novější verze, a dá vědět zprávou.
+Aktualizuje se hlasem („Jarvisi, aktualizuj se“) nebo v aplikaci v části Zařízení, Aktualizace. Trvá to asi minutu.
+Nastavení, úkoly i paměť zůstanou. Když nová verze spadne nebo se do 5 minut nepřipojí k síti, deska se sama vrátí
+k té předchozí. Pády se zapisují, poslední je vidět v aplikaci v části Informace.
+
+Vývoj bez kabelu a bez restartu desky:
+
+```bash
+python3 tools/net.py log --seconds 30 --send "5:ask Kolik je hodin?"
+```
+
+```bash
+python3 tools/net.py ota
+```
+
+`net.py ota` pošle poslední překlad do desky po síti. Změna rozdělení flash (`partitions.csv`) kabel potřebuje dál.
+
 ## Noční režim
 
 Od 23:00 do 7:00 displej po půl minutě klidu úplně zhasne, místo hodin je tma. Dotyk nebo oslovení ho probudí.

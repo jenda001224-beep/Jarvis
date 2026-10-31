@@ -26,6 +26,7 @@ final class AppModel {
     private(set) var chat: [ChatMessage] = []
     private(set) var chatBusy = false
     private(set) var calendars: CalendarStatus?
+    private(set) var update: UpdateStatus?
     var problem: String?
     var restarting = false
 
@@ -448,6 +449,30 @@ final class AppModel {
 
     func loadCalendars() async {
         calendars = await perform { try await $0.send("GET", "api/calendars", as: CalendarStatus.self) }
+    }
+
+    func loadUpdate() async {
+        update = await perform { try await $0.send("GET", "api/update", as: UpdateStatus.self) } ?? update
+    }
+
+    func checkForUpdate() async {
+        update = await perform { try await $0.send("POST", "api/update", fields: [:], as: UpdateStatus.self) } ?? update
+    }
+
+    func installUpdate() async {
+        update = await perform { try await $0.send("POST", "api/update", fields: ["install": true], as: UpdateStatus.self) } ?? update
+    }
+
+    func power(_ device: HomeDevice, on: Bool) async {
+        if let list = await perform({ try await $0.send("PATCH", "api/devices/\(device.id)", fields: ["on": on], as: HomeDeviceList.self) }) {
+            devices = list.devices
+        }
+    }
+
+    func brightness(_ device: HomeDevice, level: Int) async {
+        if let list = await perform({ try await $0.send("PATCH", "api/devices/\(device.id)", fields: ["level": level], as: HomeDeviceList.self) }) {
+            devices = list.devices
+        }
     }
 
     func setDevice(_ device: HomeDevice, fields: [String: Any]) async {

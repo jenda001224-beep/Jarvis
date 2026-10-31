@@ -338,7 +338,7 @@ void media_start(void)
     }
     esp_audio_dec_register_default();
     esp_audio_simple_dec_register_default();
-    xTaskCreatePinnedToCoreWithCaps(media_task, "media", 12288, NULL, 3, &worker, 1, MALLOC_CAP_SPIRAM);
+    xTaskCreatePinnedToCoreWithCaps(media_task, "media", 16384, NULL, 3, &worker, 1, MALLOC_CAP_SPIRAM);
 }
 
 void media_hold(bool hold)

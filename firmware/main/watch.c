@@ -259,6 +259,6 @@ void watch_start(void)
 {
     lock = xSemaphoreCreateMutex();
     if (lock) {
-        xTaskCreatePinnedToCoreWithCaps(watch_task, "watch", 10240, NULL, 2, NULL, 0, MALLOC_CAP_SPIRAM);
+        xTaskCreatePinnedToCoreWithCaps(watch_task, "watch", 16384, NULL, 2, NULL, 0, MALLOC_CAP_SPIRAM);
     }
 }

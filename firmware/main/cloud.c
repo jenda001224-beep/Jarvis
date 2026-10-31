@@ -476,6 +476,6 @@ void cloud_start(cloud_tokens_t tokens)
         return;
     }
     pushes = xQueueCreate(PUSH_QUEUE, sizeof(char *));
-    xTaskCreatePinnedToCoreWithCaps(cloud_task, "cloud", 16384, NULL, 2, NULL, 0, MALLOC_CAP_SPIRAM);
+    xTaskCreatePinnedToCoreWithCaps(cloud_task, "cloud", 20480, NULL, 2, NULL, 0, MALLOC_CAP_SPIRAM);
     ESP_LOGI(TAG, "cloud mailbox started");
 }

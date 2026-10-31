@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import json
 import re
-import subprocess
 import sys
 import time
 import urllib.error
@@ -9,7 +8,6 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-LOG = ROOT / ".tools" / "tmp" / "api-check.log"
 
 
 def call(base, method, path, body=None, token=None):
@@ -34,18 +32,23 @@ def expect(condition, message):
 def main():
     address = sys.argv[1] if len(sys.argv) > 1 else "jarvis.local"
     base = f"http://{address}"
-    monitor = subprocess.Popen([sys.executable, str(ROOT / "tools" / "bench.py"), "log", "--seconds", "90"],
-                               stdout=open(LOG, "w"), stderr=subprocess.STDOUT)
+    service = (ROOT / ".tools" / "notify-token").read_text().strip()
     try:
-        time.sleep(25)
         status, hello = call(base, "GET", "/api/hello")
         expect(status == 200 and hello["name"] == "J-WALL Display", f"hello {hello}")
         status, _ = call(base, "GET", "/api/state")
         expect(status == 401, "state needs pairing")
+        for path, body in (("/api/console", {"line": "mute on"}), ("/api/log", {"after": 0}), ("/api/update", {"install": True})):
+            status, _ = call(base, "POST", path, body)
+            expect(status == 401, f"{path} needs pairing")
         status, _ = call(base, "POST", "/api/pair/start", {})
         expect(status == 200, "pairing started")
         time.sleep(1)
-        codes = re.findall(r"pairing code (\d{6})", LOG.read_text(errors="replace"))
+        status, log = call(base, "POST", "/api/log", {"after": 0}, service)
+        while status == 200 and len(log["text"]) >= 12000:
+            status, more = call(base, "POST", "/api/log", {"after": log["next"]}, service)
+            log = {"next": more["next"], "text": log["text"][-2000:] + more["text"]}
+        codes = re.findall(r"pairing code (\d{6})", log["text"])
         expect(bool(codes), "code found in the board log")
         status, _ = call(base, "POST", "/api/pair", {"code": "000000" if codes[-1] != "000000" else "111111"})
         expect(status == 401, "wrong code refused")
@@ -102,11 +105,17 @@ def main():
         expect(status == 200 and reply["away"] is False, "presence accepted")
         status, snapshot = call(base, "GET", "/api/snapshot", token=token)
         expect(status == 200 and "state" in snapshot and "mark" in snapshot and "todos" in snapshot, "snapshot complete")
+        status, log = call(base, "POST", "/api/log", {"after": 4294967295}, token)
+        expect(status == 200 and log["next"] > 0, "log readable over the network")
+        status, update = call(base, "GET", "/api/update", token=token)
+        expect(status == 200 and update["phase"] == "idle" and update["partition"].startswith("ota_"), f"update status, running from {update.get('partition')}")
+        status, devices = call(base, "GET", "/api/devices", token=token)
+        expect(status == 200 and "devices" in devices, "devices listed")
         status, _ = call(base, "POST", "/api/forget", {}, token)
         status, _ = call(base, "GET", "/api/state", token=token)
         expect(status == 401, "forgotten token refused")
-    finally:
-        monitor.terminate()
+    except KeyError as error:
+        expect(False, f"missing {error}")
 
 
 if __name__ == "__main__":

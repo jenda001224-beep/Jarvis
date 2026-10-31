@@ -54,6 +54,19 @@ static void console_task(void *arg)
     }
 }
 
+bool console_inject(const char *line)
+{
+    if (!lock) {
+        return false;
+    }
+    xSemaphoreTake(lock, portMAX_DELAY);
+    strlcpy(pending, line, sizeof(pending));
+    waiting = true;
+    xSemaphoreGive(lock);
+    app_post(APP_EVENT_CONSOLE);
+    return true;
+}
+
 void console_start(void)
 {
     lock = xSemaphoreCreateMutex();

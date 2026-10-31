@@ -19,6 +19,7 @@
 #include "gemini.h"
 #include "notices.h"
 #include "sound.h"
+#include "updateinfo.h"
 #include <math.h>
 
 static const char FULL_REPORT[] =
@@ -810,6 +811,28 @@ static void test_chat_protocol(void)
     assert(strcmp(message, "2026-10-31T08:00:00Z:aGFzaA==:/database/1/x/records/lookup") == 0);
 }
 
+static void test_release(void)
+{
+    assert(release_compare("2.6.1", "2.6.1") == 0);
+    assert(release_compare("2.7.0", "2.6.9") > 0);
+    assert(release_compare("2.10.0", "2.9.9") > 0);
+    assert(release_compare("2.6.1", "3.0.0") < 0);
+    assert(release_compare("garbage", "0.0.1") < 0);
+    static const char MANIFEST[] =
+        "{\"name\":\"Jarvis\",\"version\":\"2.7.0\",\"config\":{\"offset\":9502720},\"builds\":[{\"chipFamily\":\"ESP32-S3\",\"parts\":["
+        "{\"path\":\"firmware/bootloader.bin\",\"offset\":0,\"size\":22272,\"md5\":\"b868b1d7a5e69782ceb11560164ab0e4\"},"
+        "{\"path\":\"firmware/jarvis.bin\",\"offset\":65536,\"size\":3000000,\"md5\":\"00112233445566778899aabbccddeeff\"}]}]}";
+    release_t release;
+    assert(release_parse(MANIFEST, strlen(MANIFEST), 0x10000, &release));
+    assert(strcmp(release.version, "2.7.0") == 0 && strcmp(release.path, "firmware/jarvis.bin") == 0);
+    assert(strcmp(release.md5, "00112233445566778899aabbccddeeff") == 0 && release.size == 3000000);
+    assert(!release_parse(MANIFEST, strlen(MANIFEST), 0x20000, &release));
+    assert(!release_parse("{}", 2, 0x10000, &release));
+    assert(!release_parse("nonsense", 8, 0x10000, &release));
+    static const char OLD[] = "{\"version\":\"2.6.1\",\"builds\":[{\"parts\":[{\"path\":\"firmware/jarvis.bin\",\"offset\":65536}]}]}";
+    assert(release_parse(OLD, strlen(OLD), 0x10000, &release) && release.size == 0 && release.md5[0] == 0);
+}
+
 int main(void)
 {
     test_printer();
@@ -828,6 +851,7 @@ int main(void)
     test_caldav();
     test_sound();
     test_chat_protocol();
-    puts("modules: printer, reminders, travel, weather, text prompt, search, to-dos, alarms, timers, Gemini, notices, rain, CalDAV, sound and chat pass");
+    test_release();
+    puts("modules: printer, reminders, travel, weather, text prompt, search, to-dos, alarms, timers, Gemini, notices, rain, CalDAV, sound, chat and releases pass");
     return 0;
 }

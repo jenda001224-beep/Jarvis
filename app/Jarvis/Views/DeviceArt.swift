@@ -10,16 +10,12 @@ struct DeviceArt: View {
             GeometryReader { geometry in
                 let size = min(geometry.size.width, geometry.size.height)
                 ZStack {
-                    RoundedRectangle(cornerRadius: size * 0.06, style: .continuous)
-                        .fill(LinearGradient(colors: [Color(white: 0.20), Color(white: 0.07)], startPoint: .topLeading,
-                                             endPoint: .bottomTrailing))
-                        .shadow(color: Theme.accent.opacity(0.18), radius: size * 0.08, y: size * 0.04)
-                    RoundedRectangle(cornerRadius: size * 0.06, style: .continuous)
-                        .stroke(Color(white: 0.32), lineWidth: 1)
-                    screen(size: size * 0.84, turn: turn)
-                        .clipShape(RoundedRectangle(cornerRadius: size * 0.02, style: .continuous))
-                    port(size: size)
-                        .offset(y: size * 0.5)
+                    Image("DevicePhoto")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .clipShape(RoundedRectangle(cornerRadius: size * 0.012, style: .continuous))
+                        .shadow(color: Theme.accent.opacity(0.18), radius: size * 0.08, y: size * 0.02)
+                    screen(size: size * 0.842, turn: turn)
                 }
                 .frame(width: size, height: size)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -62,13 +58,5 @@ struct DeviceArt: View {
             .offset(y: -size * 0.04)
         }
         .frame(width: size, height: size)
-    }
-
-    private func port(size: CGFloat) -> some View {
-        Capsule()
-            .fill(Color(white: 0.04))
-            .frame(width: size * 0.09, height: size * 0.022)
-            .overlay(Capsule().stroke(Color(white: 0.35), lineWidth: 0.6))
-            .offset(y: -size * 0.006)
     }
 }

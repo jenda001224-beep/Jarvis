@@ -772,6 +772,17 @@ void ui_show_alarm(const char *clock_text, const char *label)
     show_cover(label && label[0] ? label : "BUDÍK", clock_text, "DOTKNI SE PRO VYPNUTÍ");
 }
 
+void ui_show_update(int percent)
+{
+    if (percent < 0) {
+        hide_cover();
+        return;
+    }
+    char big[8];
+    snprintf(big, sizeof(big), "%d", percent % 1000);
+    show_cover("AKTUALIZACE", big, "NEVYPÍNEJ, DISPLEJ SE SÁM RESTARTUJE");
+}
+
 void ui_set_lamp(bool on)
 {
     bsp_display_lock(0);

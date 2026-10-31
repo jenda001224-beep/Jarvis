@@ -58,10 +58,10 @@ def main():
     table_offset = int(args["partition-table"]["offset"], 16)
     layout = partitions(files[table_offset].read_bytes())
 
-    for name in ("factory", "model", "cfg", "nvs"):
+    for name in ("ota_0", "ota_1", "otadata", "model", "cfg", "nvs"):
         if name not in layout:
             fail(f"partition {name} missing")
-    app_kind, _, app_start, app_size = layout["factory"]
+    app_kind, _, app_start, app_size = layout["ota_0"]
     _, _, model_start, model_size = layout["model"]
     config_kind, _, config_start, config_size = layout["cfg"]
     if app_kind != TYPE_APP or config_kind != TYPE_CONFIG:
@@ -106,7 +106,7 @@ def main():
         shutil.copyfile(path, FIRMWARE / path.name)
         data = path.read_bytes()
         total += len(data)
-        parts.append({"path": f"firmware/{path.name}", "offset": offset, "md5": hashlib.md5(data).hexdigest()})
+        parts.append({"path": f"firmware/{path.name}", "offset": offset, "size": len(data), "md5": hashlib.md5(data).hexdigest()})
 
     manifest = {
         "name": "Jarvis",

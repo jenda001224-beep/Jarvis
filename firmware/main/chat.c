@@ -185,7 +185,7 @@ void chat_start(chat_tool_t tool)
     pending = xQueueCreate(PENDING, sizeof(request_t));
     lock = xSemaphoreCreateMutex();
     if (pending && lock) {
-        xTaskCreatePinnedToCoreWithCaps(chat_task, "chat", 16384, NULL, 2, NULL, 0, MALLOC_CAP_SPIRAM);
+        xTaskCreatePinnedToCoreWithCaps(chat_task, "chat", 20480, NULL, 2, NULL, 0, MALLOC_CAP_SPIRAM);
     }
 }
 

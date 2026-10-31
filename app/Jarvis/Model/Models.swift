@@ -33,6 +33,7 @@ struct Prefs: Codable, Equatable {
     var nightFrom: Int
     var nightTo: Int
     var announce: Int?
+    var nightVolume: Int?
 }
 
 struct StoredSettings: Decodable {
@@ -82,6 +83,8 @@ struct DeviceState: Decodable {
     let todosOpen: Int
     let nextAlarm: NextAlarm?
     let quietUntil: Double?
+    let updateAvailable: Bool?
+    let crash: String?
     let away: Bool?
     let cloud: CloudStatus?
 
@@ -239,6 +242,7 @@ struct HomeDevice: Decodable, Identifiable {
     let reachable: Bool
     let hidden: Bool?
     let welcome: Bool?
+    let level: Int?
 
     var renamed: Bool { name != hubName || room != hubRoom }
 }
@@ -343,4 +347,15 @@ struct Snapshot: Decodable {
         chat = try? container.decode(ChatLog.self, forKey: .chat)
         media = try? container.decode(MediaStatus.self, forKey: .media)
     }
+}
+
+struct UpdateStatus: Decodable {
+    let current: String
+    let newest: String
+    let checked: Bool
+    let available: Bool
+    let phase: String
+    let percent: Int
+    let problem: String
+    let partition: String
 }

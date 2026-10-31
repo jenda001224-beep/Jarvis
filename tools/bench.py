@@ -104,6 +104,7 @@ def flash(options):
     files = []
     if options.app_only:
         files += [args["app"]["offset"], str(BUILD / args["app"]["file"])]
+        files += [args["otadata"]["offset"], str(BUILD / args["otadata"]["file"])]
     elif not options.settings_only:
         for offset, name in sorted(args["flash_files"].items(), key=lambda item: int(item[0], 16)):
             files += [offset, str(BUILD / name)]
