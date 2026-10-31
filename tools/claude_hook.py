@@ -10,6 +10,29 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATE = os.path.join(ROOT, ".tools", "hook")
 LONG_SECONDS = 120
+TAIL_BYTES = 2_000_000
+
+
+def chat_title(event):
+    path = event.get("transcript_path", "")
+    if path and os.path.exists(path):
+        with open(path, "rb") as transcript:
+            transcript.seek(max(0, os.path.getsize(path) - TAIL_BYTES))
+            tail = transcript.read()
+        for line in reversed(tail.split(b"\n")):
+            if b'"customTitle"' in line:
+                try:
+                    title = json.loads(line).get("customTitle")
+                except ValueError:
+                    continue
+                if title:
+                    return title
+    return os.path.basename(event.get("cwd", "").rstrip("/"))
+
+
+def finished_text(event):
+    title = chat_title(event)
+    return f"Claude dokončil práci v chatu {title}." if title else "Claude dokončil práci."
 
 
 def main():
@@ -28,7 +51,7 @@ def main():
     if time.time() - started >= LONG_SECONDS:
         import jarvis_notify
 
-        jarvis_notify.send("Claude dokončil práci.", "mac", True)
+        jarvis_notify.send(finished_text(event), "mac", True)
 
 
 if __name__ == "__main__":
