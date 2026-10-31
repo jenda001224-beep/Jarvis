@@ -2,6 +2,26 @@
 
 Každé tvrzení, na kterém firmware stojí, a z čeho vychází. Stav k 17. 10. 2026.
 
+## Verze 2.6 (31. 10. 2026)
+
+| Zjištění | Stav |
+|---|---|
+| 30 kontrol API (`tools/api_check.py`) | prošlo na desce |
+| Časovače | API a hlas na desce, zvonění ztlumeně; prstenec odpočtu viděn jen v náhledu na Macu |
+| Přehled Dnes, přehrávání | dotyky přes konzoli na desce, vzhled v náhledu na Macu; na displeji **neviděno** |
+| Paměť | testy na simulované NOR flash včetně přerušeného zápisu; na desce zápis, poznámky přes `gemini-flash-lite-latest`, hledání, zapomínání, smazání |
+| Oznámení, déšť | API a skutečná předpověď Open-Meteo na desce; čtení nahlas ve dne **netestováno** |
+| Tisk hotový nebo selhal | jen test přechodů stavů; proti tiskárně **netestováno** |
+| Čas vyrazit | na desce proti CalDAV serveru na Macu |
+| Kalendář | zjištění kalendářů, čtení a zápis proti Radicale 3.9 na Macu; proti iCloudu **netestováno** |
+| Rádio, podcast, šum | dekodér běží, buffer se drží na 186 kB, 29 snímků za sekundu, vše ztlumeně; poslech a oslovení přes vlastní zvuk **neověřeno** |
+| Chat | na desce s `gemini-flash-lite-latest` včetně volání nástrojů; `gemini-3.8-flash` v tu chvíli vracel 503 nebo neodpovídal, je jen záloha |
+| Schránka iCloud | proti simulátoru `tools/cloud_mock.py`, který ověřuje podpis ECDSA a dešifruje AES-GCM; proti Applu **netestováno** |
+| Upozornění z iCloudu | že záznam vytvořený serverovým klíčem spustí upozornění, **žádný zdroj nepotvrzuje**, nutné vyzkoušet |
+| Šifrování telefon a deska | Swift CryptoKit a Python oboustranně, deska a Python oboustranně |
+| Server tras přijímá jen TLS 1.3 | ověřeno openssl; po zapnutí TLS 1.3 výpočet cesty na desce funguje |
+| Aplikace | jen přeložena pro iOS, na telefonu **nespuštěna** |
+
 ## Domovská obrazovka a nastavení (verze 2.4, výpis přes USB, 17. 10. 2026)
 
 | Zjištění | Stav |

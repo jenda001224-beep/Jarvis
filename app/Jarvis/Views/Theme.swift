@@ -35,11 +35,14 @@ struct OfflineBanner: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        if model.restarting {
+        if model.remote {
+            Label("Mimo domov, přes iCloud. Odezva trvá pár sekund.", systemImage: "icloud")
+                .banner()
+        } else if model.restarting {
             Label("Displej se restartuje…", systemImage: "arrow.clockwise")
                 .banner()
         } else if !model.reachable {
-            Label("Displej není na dosah. Funguje to jen na stejné Wi-Fi.", systemImage: "wifi.exclamationmark")
+            Label("Displej není na dosah ani přes iCloud.", systemImage: "wifi.exclamationmark")
                 .banner()
         } else if let problem = model.problem {
             Label(problem, systemImage: "exclamationmark.triangle")

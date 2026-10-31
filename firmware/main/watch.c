@@ -7,6 +7,7 @@
 #include "agenda.h"
 #include "bambu.h"
 #include "calendar.h"
+#include "cloud.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -36,6 +37,7 @@ typedef struct {
 
 static SemaphoreHandle_t lock;
 static volatile int mask = WATCH_PRINTER | WATCH_DEPARTURE | WATCH_RAIN;
+static volatile bool away;
 static EXTERNAL_RAM departure_t planned[PLANNED];
 static char printer_before[12];
 static time_t rain_told;
@@ -48,9 +50,14 @@ uint32_t watch_notice(const char *source, const char *text, bool speak)
         return 0;
     }
     xSemaphoreTake(lock, portMAX_DELAY);
+    uint32_t before = notices_unread();
     uint32_t id = notices_add((int64_t) time(NULL), source, text, speak);
+    bool fresh = notices_unread() != before;
     xSemaphoreGive(lock);
     ESP_LOGI(TAG, "notice from %s: %s", source, text);
+    if (fresh && away) {
+        cloud_push(text);
+    }
     return id;
 }
 
@@ -106,6 +113,16 @@ void watch_mark_read(void)
     xSemaphoreTake(lock, portMAX_DELAY);
     notices_mark_all();
     xSemaphoreGive(lock);
+}
+
+void watch_set_away(bool value)
+{
+    away = value;
+}
+
+bool watch_away(void)
+{
+    return away;
 }
 
 void watch_set_mask(int value)

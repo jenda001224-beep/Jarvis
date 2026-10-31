@@ -13,6 +13,7 @@ void recall_session_begin(void);
 void recall_heard(const char *text);
 void recall_spoken(const char *text);
 void recall_session_end(void);
+void recall_chat_line(char who, const char *text);
 
 void recall_tick(bool idle);
 

@@ -18,9 +18,11 @@ struct DeviceView: View {
                 .listRowInsets(EdgeInsets())
                 if let state = model.state, prefs != nil {
                     actions(state)
+                    home(state)
                     sound
                     display
                     night
+                    speaksUp
                     jarvis(state)
                     network(state)
                     about(state)
@@ -118,8 +120,84 @@ struct DeviceView: View {
         }
     }
 
+    private func home(_ state: DeviceState) -> some View {
+        Section("Doma") {
+            NavigationLink {
+                MediaView()
+            } label: {
+                LabeledContent {
+                    Text(model.media?.playing == true ? (model.media?.title ?? "") : "Nehraje").foregroundStyle(Theme.muted)
+                } label: {
+                    Label("Přehrávání", systemImage: "radio")
+                }
+            }
+            NavigationLink {
+                NoticesView()
+            } label: {
+                LabeledContent {
+                    Text(model.unread > 0 ? "\(model.unread) nových" : "").foregroundStyle(Theme.accent)
+                } label: {
+                    Label("Zprávy", systemImage: "bell")
+                }
+            }
+            NavigationLink {
+                MemoryView()
+            } label: {
+                Label("Paměť", systemImage: "brain")
+            }
+            NavigationLink {
+                ArrivalHelpView()
+            } label: {
+                Label("Příchod domů", systemImage: "house.and.flag")
+            }
+        }
+    }
+
+    private var speaksUp: some View {
+        Section {
+            Toggle(isOn: announceBinding(1)) {
+                Label("Tisk hotový nebo selhal", systemImage: "printer")
+            }
+            Toggle(isOn: announceBinding(2)) {
+                Label("Čas vyrazit na schůzku", systemImage: "figure.walk")
+            }
+            Toggle(isOn: announceBinding(4)) {
+                Label("Za chvíli začne pršet", systemImage: "cloud.rain")
+            }
+        } header: {
+            Text("Sám se ozve")
+        } footer: {
+            Text("V nočním režimu a při ztišení mlčí, zpráva se jen ukáže na displeji. Když jsi pryč, přijde do telefonu.")
+        }
+    }
+
+    private var quietRow: some View {
+        Group {
+            if let end = model.state?.quietEnd {
+                Button {
+                    Task { await model.setQuiet(minutes: 0) }
+                } label: {
+                    LabeledContent {
+                        Text("Zrušit").foregroundStyle(Theme.accent)
+                    } label: {
+                        Label("Ticho do \(end.formatted(date: .omitted, time: .shortened))", systemImage: "speaker.slash")
+                    }
+                }
+            } else {
+                Menu {
+                    Button("1 hodina") { Task { await model.setQuiet(minutes: 60) } }
+                    Button("3 hodiny") { Task { await model.setQuiet(minutes: 180) } }
+                    Button("8 hodin") { Task { await model.setQuiet(minutes: 480) } }
+                } label: {
+                    Label("Ztišit Jarvise", systemImage: "speaker.slash")
+                }
+            }
+        }
+    }
+
     private var sound: some View {
         Section("Zvuk") {
+            quietRow
             LevelRow(title: "Hlasitost", symbol: "speaker.wave.2.fill", range: 0...100, value: prefsBinding(\.volume),
                      sliding: $sliding, commit: commit)
             NavigationLink {
@@ -214,6 +292,15 @@ struct DeviceView: View {
                 }
             }
             NavigationLink {
+                AppleCalendarView(state: state)
+            } label: {
+                LabeledContent {
+                    Text(state.settings.apple == true ? "Připojený" : "Nepřipojený").foregroundStyle(Theme.muted)
+                } label: {
+                    Label("Apple kalendář", systemImage: "calendar")
+                }
+            }
+            NavigationLink {
                 TravelSettings(state: state)
             } label: {
                 LabeledContent {
@@ -276,6 +363,14 @@ struct DeviceView: View {
             if commitNow {
                 commit()
             }
+        })
+    }
+
+    private func announceBinding(_ bit: Int) -> Binding<Bool> {
+        Binding(get: { ((prefs?.announce ?? 7) & bit) != 0 }, set: { on in
+            let current = prefs?.announce ?? 7
+            prefs?.announce = on ? current | bit : current & ~bit
+            commit()
         })
     }
 

@@ -7,6 +7,8 @@ struct RootView: View {
         Group {
             if model.paired {
                 TabView {
+                    ChatView()
+                        .tabItem { Label("Jarvis", systemImage: "bubble.left.and.text.bubble.right") }
                     TodosView()
                         .tabItem { Label("Úkoly", systemImage: "checklist") }
                     AlarmsView()

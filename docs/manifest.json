@@ -1,6 +1,6 @@
 {
   "name": "Jarvis",
-  "version": "2.4.5",
+  "version": "2.6.0",
   "new_install_prompt_erase": true,
   "new_install_improv_wait_time": 0,
   "config": {
@@ -10,7 +10,7 @@
   "builds": [
     {
       "chipFamily": "ESP32-S3",
-      "size": 2834800,
+      "size": 3676832,
       "parts": [
         {
           "path": "firmware/bootloader.bin",
@@ -20,12 +20,12 @@
         {
           "path": "firmware/partition-table.bin",
           "offset": 32768,
-          "md5": "ce93bdc305d1c5fbd03e946a025064d3"
+          "md5": "19711384f6457f789c26cafc5b9ae117"
         },
         {
           "path": "firmware/jarvis.bin",
           "offset": 65536,
-          "md5": "8f18d9198b767e9e4f4fc6a09f5573db"
+          "md5": "b34459801579c0ade8d9a0b0b99075d4"
         },
         {
           "path": "firmware/srmodels.bin",

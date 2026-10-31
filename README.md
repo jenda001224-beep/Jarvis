@@ -33,7 +33,7 @@ Deska Waveshare **ESP32-S3-Touch-LCD-4B** (4" displej, dva mikrofony, reprodukto
 
 ## Stav
 
-Verze 2.4.4, ověřeno na skutečné desce 18. 10. 2026.
+Verze 2.6.0, ověřeno na skutečné desce 31. 10. 2026. Co je nové, je v části [Novinky ve verzi 2.6](#novinky-ve-verzi-26).
 
 | Co | Stav |
 |---|---|
@@ -47,6 +47,11 @@ Verze 2.4.4, ověřeno na skutečné desce 18. 10. 2026.
 | Tiskárna Bambu Lab | čtení stavu otestované na počítači; proti skutečné tiskárně **netestováno** (chybí přístupový kód) |
 | Kalendář a doba cesty | výpočty porovnané s referenční knihovnou na počítači; na desce **netestováno** (chybí odkaz na kalendář) |
 | IKEA světla | hub se najde; spárování a ovládání **netestováno** |
+| Časovače, přehled Dnes, zprávy | běží na desce (API, hlas a dotyky přes konzoli, zvonění ztlumeně) |
+| Paměť | zápis, poznámky, hledání, zapomínání i smazání běží na desce |
+| Rádio, podcasty, šum | dekódování a plnění bufferu běží na desce ztlumeně; poslechem **nepotvrzeno** |
+| Zápis do kalendáře | proti skutečnému CalDAV serveru na Macu běží; proti iCloudu **netestováno** (chybí heslo pro aplikaci) |
+| Chat a přístup odkudkoli | chat běží na desce; schránka běží proti simulátoru s kontrolou podpisu; proti iCloudu **netestováno** |
 
 Co přesně je čím podložené a co ověřit nešlo, je v [OVERENI.md](OVERENI.md).
 
@@ -103,7 +108,7 @@ Po uplynutí doby uspání se deska vrátí na hodiny se ztlumeným jasem, nebo 
 ## Aplikace pro iPhone
 
 Složka `app/` je aplikace Jarvis pro iPhone (SwiftUI, iOS 17 a novější). Otevři `app/Jarvis.xcodeproj` v Xcode,
-vyber svůj iPhone a spusť. Aplikace mluví s displejem přímo po domácí Wi-Fi, bez cloudu, takže funguje jen doma.
+vyber svůj iPhone a spusť. Doma mluví s displejem přímo po Wi-Fi. Mimo domov jde přes iCloud, viz [JAK_ZAPNOUT.md](JAK_ZAPNOUT.md).
 
 - **Spárování:** aplikace displej najde sama (nebo zadej `jarvis.local` či IP). Displej ukáže šestimístný kód,
   ten se opíše do aplikace. Displej si pamatuje čtyři telefony.
@@ -113,7 +118,27 @@ vyber svůj iPhone a spusť. Aplikace mluví s displejem přímo po domácí Wi-
 - **Zařízení (J-WALL Display):** stav, lampička, vzkaz, který Jarvis doma přečte nahlas, a všechna nastavení:
   hlasitost, jas, uspávání, noční režim, orientace, citlivost, hlas, místo, hledání, domov a cesta, Wi-Fi, restart.
 
+- **Jarvis:** psaní s Jarvisem odkudkoli, umí totéž co hlasem.
+- **Paměť, přehrávání, zprávy, Apple kalendář, příchod domů** jsou v záložce Zařízení.
+
 `app/Tools/generate_project.py` znovu vytvoří projekt, když přibude soubor.
+
+## Novinky ve verzi 2.6
+
+- **Časovače:** „Jarvisi, dej deset minut na těstoviny.“ Odpočet je na prstenci hodin, v přehledu Dnes i v aplikaci.
+- **Paměť:** všechny rozhovory se ukládají na displej a Jarvis si z nich sám píše poznámky o tobě. Ptej se třeba
+  „o čem jsme se bavili minulý týden?“, řekni „zapamatuj si“ nebo „zapomeň na“. Poznámky jdou s každým dotazem do Gemini.
+- **Oznámení:** `python3 tools/jarvis_notify.py "Text"` z jakéhokoli skriptu. Claude Code tak hlásí dokončení delší práce.
+- **Sám se ozve:** tisk hotový nebo selhal, čas vyrazit na schůzku, za chvíli začne pršet. V noci a při ztišení jen na displej.
+- **Přehled Dnes:** tlačítko v docku. Časovače, program, úkoly s odškrtáváním, zprávy, budík.
+- **Rádio, podcasty, šum na usínání:** hlasem nebo tlačítkem s notou v docku. Zvuk je mono a jde z malého reproduktoru.
+- **Zápis do Apple kalendáře:** „Dej mi v pátek v deset doktora.“
+- **Příchod domů:** přivítání, rozsvícení po setmění a shrnutí. Spouští ho automatizace ve Zkratkách.
+- **Odkudkoli:** chat a ovládání přes aplikaci i mimo domov a upozornění do telefonu, když jsi pryč.
+- **Ticho:** „Buď tři hodiny potichu.“ Přežije restart, budíky a časovače zvoní dál.
+- Ve standby svítí displej na 1 %, TLS 1.3 kvůli serveru tras.
+
+Jednorázové nastavení je v [JAK_ZAPNOUT.md](JAK_ZAPNOUT.md).
 
 ## Noční režim
 

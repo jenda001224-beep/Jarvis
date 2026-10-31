@@ -19,6 +19,7 @@ enum ClientError: LocalizedError {
 struct JarvisClient {
     let base: URL
     let token: String?
+    var mail: CloudMail?
 
     private static let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
@@ -28,7 +29,7 @@ struct JarvisClient {
         return URLSession(configuration: configuration)
     }()
 
-    private static let decoder: JSONDecoder = {
+    static let decoder: JSONDecoder = {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         return decoder
@@ -41,6 +42,10 @@ struct JarvisClient {
     }()
 
     func send<Reply: Decodable>(_ method: String, _ path: String, json: Data? = nil, as type: Reply.Type) async throws -> Reply {
+        if let mail {
+            let (status, data) = try await mail.send(method: method, path: "/" + path, body: json)
+            return try read(status, data, path: path)
+        }
         var request = URLRequest(url: base.appending(path: path))
         request.httpMethod = method
         if let token {
@@ -58,6 +63,10 @@ struct JarvisClient {
             throw ClientError.unreachable
         }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        return try read(status, data, path: path)
+    }
+
+    private func read<Reply: Decodable>(_ status: Int, _ data: Data, path: String) throws -> Reply {
         if status == 401 && path != "api/pair" {
             throw ClientError.unauthorized
         }

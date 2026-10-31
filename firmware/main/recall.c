@@ -61,10 +61,12 @@ typedef struct {
 typedef enum {
     OP_REMEMBER,
     OP_FORGET,
+    OP_LINE,
 } op_kind_t;
 
 typedef struct {
     op_kind_t kind;
+    char who;
     char *text;
 } op_t;
 
@@ -333,6 +335,11 @@ static void apply_pending(void)
         xSemaphoreTake(lock, portMAX_DELAY);
         if (op.kind == OP_REMEMBER) {
             journal_notes_add(&journal, op.text);
+        } else if (op.kind == OP_LINE) {
+            if (enabled && time_valid()) {
+                journal_append(&journal, time(NULL), op.who, op.text);
+                consolidate_at = clock_ms() + CONSOLIDATE_AFTER_MS;
+            }
         } else {
             int lines = journal_forget(&journal, op.text);
             int notes = journal_notes_forget(&journal, op.text);
@@ -482,6 +489,17 @@ char *recall_tool_search(const char *args_json)
     char *text = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     return text;
+}
+
+void recall_chat_line(char who, const char *text)
+{
+    if (!ready || !enabled || !text[0]) {
+        return;
+    }
+    op_t op = {.kind = OP_LINE, .who = who, .text = strdup(text)};
+    if (!op.text || xQueueSend(ops, &op, 0) != pdTRUE) {
+        free(op.text);
+    }
 }
 
 static char *post_op(op_kind_t kind, const char *text, const char *done)

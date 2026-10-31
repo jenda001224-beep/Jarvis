@@ -32,6 +32,7 @@ struct AlarmsView: View {
                         .padding(.vertical, 4)
                     }
                 }
+                TimersSection()
                 Section("Budíky") {
                     if model.alarms.isEmpty {
                         Text("Žádný budík. Řekni „Jarvisi, vzbuď mě v sedm“ nebo přidej budík tady.")
@@ -200,5 +201,94 @@ struct AlarmEditor: View {
         let draft = AlarmDraft(hour: parts.hour ?? 7, minute: parts.minute ?? 0, days: days,
                                label: label.trimmingCharacters(in: .whitespaces), enabled: true)
         await model.save(draft, id: alarm?.id)
+    }
+}
+
+struct TimersSection: View {
+    @Environment(AppModel.self) private var model
+    @State private var custom = false
+
+    private let presets = [1, 3, 5, 10, 15, 30]
+
+    var body: some View {
+        Section("Časovače") {
+            ForEach(model.timers) { timer in
+                HStack {
+                    Text(timer.label.isEmpty ? "Časovač" : timer.label)
+                    Spacer()
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        Text(left(timer, at: context.date))
+                            .monospacedDigit()
+                            .foregroundStyle(Theme.accent)
+                    }
+                }
+                .swipeActions {
+                    Button(role: .destructive) {
+                        Task { await model.cancel(timer) }
+                    } label: {
+                        Label("Zrušit", systemImage: "xmark")
+                    }
+                }
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(presets, id: \.self) { minutes in
+                        Button("\(minutes) min") {
+                            Task { await model.addTimer(minutes: minutes) }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                    Button("Jiný…") {
+                        custom = true
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+        }
+        .sheet(isPresented: $custom) {
+            CustomTimerSheet()
+                .presentationDetents([.medium])
+        }
+    }
+
+    private func left(_ timer: TimerItem, at date: Date) -> String {
+        let total = max(0, timer.remaining - Int(date.timeIntervalSince(model.timersReceived)))
+        if total >= 3600 {
+            return String(format: "%d:%02d:%02d", total / 3600, total / 60 % 60, total % 60)
+        }
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+}
+
+private struct CustomTimerSheet: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @State private var minutes = 20
+    @State private var label = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Stepper("\(minutes) min", value: $minutes, in: 1...720)
+                TextField("Na co to je, třeba Těstoviny", text: $label)
+            }
+            .navigationTitle("Časovač")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Zrušit") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Spustit") {
+                        Task {
+                            await model.addTimer(minutes: minutes, label: label)
+                            dismiss()
+                        }
+                    }
+                }
+            }
+        }
     }
 }

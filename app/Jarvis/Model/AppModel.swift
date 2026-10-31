@@ -15,15 +15,33 @@ final class AppModel {
     private(set) var reminders: [Reminder] = []
     private(set) var devices: [HomeDevice] = []
     private(set) var reachable = true
+    private(set) var remote = false
+    private(set) var timers: [TimerItem] = []
+    private(set) var timersReceived = Date()
+    private(set) var notices: [Notice] = []
+    private(set) var unread = 0
+    private(set) var memory: MemoryStatus?
+    private(set) var memoryLines: [MemoryLine] = []
+    private(set) var media: MediaStatus?
+    private(set) var chat: [ChatMessage] = []
+    private(set) var chatBusy = false
+    private(set) var calendars: CalendarStatus?
     var problem: String?
     var restarting = false
 
     private var seenRevision = -1
+    private var lastLocalTry = Date.distantPast
+    private var mail: CloudMail?
+    private static let localRetrySeconds: TimeInterval = 30
+    private static let remoteRefreshSeconds: UInt64 = 8
     private var polling: Task<Void, Never>?
 
     init() {
         address = UserDefaults.standard.string(forKey: AppModel.addressKey)
         token = Keychain.read()
+        if let token {
+            mail = CloudMail(token: token)
+        }
     }
 
     var paired: Bool { address != nil && token != nil }
@@ -32,7 +50,7 @@ final class AppModel {
         guard let address = address ?? self.address, let base = URL(string: "http://\(address)/") else {
             return nil
         }
-        return JarvisClient(base: base, token: authorized ? token : nil)
+        return JarvisClient(base: base, token: authorized ? token : nil, mail: remote && authorized ? mail : nil)
     }
 
     // MARK: Pairing
@@ -60,6 +78,7 @@ final class AppModel {
         UserDefaults.standard.set(address, forKey: AppModel.addressKey)
         self.address = address
         self.token = reply.token
+        mail = CloudMail(token: reply.token)
         seenRevision = -1
         await refresh()
     }
@@ -75,6 +94,8 @@ final class AppModel {
         Keychain.write(nil)
         UserDefaults.standard.removeObject(forKey: AppModel.addressKey)
         token = nil
+        mail = nil
+        remote = false
         address = nil
         state = nil
         todos = []
@@ -92,7 +113,8 @@ final class AppModel {
         polling = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refresh()
-                try? await Task.sleep(nanoseconds: AppModel.refreshSeconds * 1_000_000_000)
+                let pause = self?.remote == true ? AppModel.remoteRefreshSeconds : AppModel.refreshSeconds
+                try? await Task.sleep(nanoseconds: pause * 1_000_000_000)
             }
         }
     }
@@ -103,14 +125,22 @@ final class AppModel {
     }
 
     func refresh() async {
-        guard let client = client() else {
+        guard let address, let base = URL(string: "http://\(address)/") else {
             return
         }
+        if remote && Date().timeIntervalSince(lastLocalTry) < AppModel.localRetrySeconds {
+            await refreshRemote()
+            return
+        }
+        lastLocalTry = Date()
+        let client = JarvisClient(base: base, token: token)
         do {
             let fresh = try await client.send("GET", "api/state", as: DeviceState.self)
             state = fresh
             reachable = true
+            remote = false
             restarting = false
+            await refreshExtras(client)
             if fresh.revision != seenRevision {
                 async let todoList = client.send("GET", "api/todos", as: TodoList.self)
                 async let alarmList = client.send("GET", "api/alarms", as: AlarmList.self)
@@ -123,7 +153,43 @@ final class AppModel {
         } catch ClientError.unauthorized {
             unpair()
         } catch {
+            await refreshRemote()
+        }
+    }
+
+    private func refreshExtras(_ client: JarvisClient) async {
+        if let list = try? await client.send("GET", "api/timers", as: TimerList.self) {
+            timers = list.timers
+            timersReceived = Date()
+        }
+        if let list = try? await client.send("GET", "api/notices", as: NoticeList.self) {
+            notices = list.notices
+            unread = list.unread
+        }
+        media = try? await client.send("GET", "api/media", as: MediaStatus.self)
+    }
+
+    private func refreshRemote() async {
+        guard let mail, let data = try? await mail.snapshot(),
+              let snapshot = try? JarvisClient.decoder.decode(Snapshot.self, from: data) else {
+            remote = false
             reachable = false
+            return
+        }
+        remote = true
+        reachable = true
+        restarting = false
+        state = snapshot.state
+        todos = snapshot.todos ?? todos
+        alarms = snapshot.alarms ?? alarms
+        if let list = snapshot.timers {
+            timers = list
+            timersReceived = Date()
+        }
+        media = snapshot.media ?? media
+        if let log = snapshot.chat {
+            chat = log.messages
+            chatBusy = log.busy
         }
     }
 
@@ -267,6 +333,127 @@ final class AppModel {
             return false
         }
         return await perform { try await $0.send("POST", "api/say", fields: ["text": clean], as: Empty.self) } != nil
+    }
+
+    // MARK: Timers
+
+    func addTimer(minutes: Int, label: String = "") async {
+        if let list = await perform({ try await $0.send("POST", "api/timers", fields: ["seconds": minutes * 60, "label": label], as: TimerList.self) }) {
+            timers = list.timers
+            timersReceived = Date()
+        }
+    }
+
+    func cancel(_ timer: TimerItem) async {
+        timers.removeAll { $0.id == timer.id }
+        if let list = await perform({ try await $0.send("DELETE", "api/timers/\(timer.id)", as: TimerList.self) }) {
+            timers = list.timers
+            timersReceived = Date()
+        }
+    }
+
+    // MARK: Notices
+
+    func markNoticesRead() async {
+        if let list = await perform({ try await $0.send("DELETE", "api/notices", as: NoticeList.self) }) {
+            notices = list.notices
+            unread = list.unread
+        }
+    }
+
+    // MARK: Memory
+
+    func loadMemory() async {
+        memory = await perform { try await $0.send("GET", "api/memory", as: MemoryStatus.self) }
+    }
+
+    func setMemory(enabled: Bool) async {
+        if let reply = await perform({ try await $0.send("PUT", "api/memory", fields: ["enabled": enabled], as: MemoryStatus.self) }) {
+            memory = reply
+        }
+    }
+
+    func saveNotes(_ notes: String) async {
+        if let reply = await perform({ try await $0.send("PUT", "api/memory", fields: ["notes": notes], as: MemoryStatus.self) }) {
+            memory = reply
+        }
+    }
+
+    func searchMemory(_ query: String) async {
+        if let reply = await perform({ try await $0.send("POST", "api/memory/search", fields: ["query": query], as: MemoryLines.self) }) {
+            memoryLines = reply.lines
+        }
+    }
+
+    func wipeMemory() async {
+        if let reply = await perform({ try await $0.send("DELETE", "api/memory", as: MemoryStatus.self) }) {
+            memory = reply
+            memoryLines = []
+        }
+    }
+
+    // MARK: Media
+
+    func play(station: String) async {
+        media = await perform { try await $0.send("POST", "api/media", fields: ["station": station], as: MediaStatus.self) } ?? media
+    }
+
+    func play(noise: String) async {
+        media = await perform { try await $0.send("POST", "api/media", fields: ["noise": noise, "minutes": 60], as: MediaStatus.self) } ?? media
+    }
+
+    func stopMedia() async {
+        media = await perform { try await $0.send("POST", "api/media", fields: [:], as: MediaStatus.self) } ?? media
+    }
+
+    // MARK: Chat
+
+    func loadChat() async {
+        guard !remote else {
+            return
+        }
+        if let log = try? await client()?.send("GET", "api/chat", as: ChatLog.self) {
+            chat = log.messages
+            chatBusy = log.busy
+        }
+    }
+
+    func sendChat(_ text: String) async -> Bool {
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else {
+            return false
+        }
+        chatBusy = true
+        if let log = await perform({ try await $0.send("POST", "api/chat", fields: ["text": clean], as: ChatLog.self) }) {
+            chat = log.messages
+            chatBusy = log.busy
+            return true
+        }
+        chatBusy = false
+        return false
+    }
+
+    func clearChat() async {
+        if let log = await perform({ try await $0.send("DELETE", "api/chat", as: ChatLog.self) }) {
+            chat = log.messages
+        }
+    }
+
+    // MARK: Quiet and calendars
+
+    func setQuiet(minutes: Int) async {
+        _ = await perform { try await $0.send("POST", "api/quiet", fields: ["minutes": minutes], as: DeviceState.self) }
+        await refresh()
+    }
+
+    func loadCalendars() async {
+        calendars = await perform { try await $0.send("GET", "api/calendars", as: CalendarStatus.self) }
+    }
+
+    func setDevice(_ device: HomeDevice, fields: [String: Any]) async {
+        if let list = await perform({ try await $0.send("PUT", "api/devices/\(device.id)", fields: fields, as: HomeDeviceList.self) }) {
+            devices = list.devices
+        }
     }
 
     func restart() async {

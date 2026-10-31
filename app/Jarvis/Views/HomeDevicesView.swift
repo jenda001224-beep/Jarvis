@@ -23,6 +23,14 @@ struct HomeDevicesView: View {
                                     .foregroundStyle(Theme.muted)
                             }
                             Spacer()
+                            if device.hidden == true {
+                                Image(systemName: "eye.slash")
+                                    .foregroundStyle(Theme.muted)
+                            }
+                            if device.welcome == true {
+                                Image(systemName: "house")
+                                    .foregroundStyle(Theme.muted)
+                            }
                             if device.renamed {
                                 Image(systemName: "pencil")
                                     .foregroundStyle(Theme.muted)
@@ -50,6 +58,8 @@ private struct RenameDeviceSheet: View {
     @State private var name = ""
     @State private var room = ""
     @State private var roomless = false
+    @State private var hidden = false
+    @State private var welcome = false
 
     var body: some View {
         NavigationStack {
@@ -64,6 +74,12 @@ private struct RenameDeviceSheet: View {
                     }
                 } header: {
                     Text("Místnost")
+                }
+                Section {
+                    Toggle("Skrýt před Jarvisem", isOn: $hidden)
+                    Toggle("Rozsvítit při příchodu domů", isOn: $welcome)
+                } footer: {
+                    Text("Skryté zařízení Jarvis ani displej nepoužívají. Při příchodu se světla rozsvítí jen po setmění.")
                 }
                 Section {
                     LabeledContent("V IKEA Home", value: device.hubName)
@@ -98,6 +114,8 @@ private struct RenameDeviceSheet: View {
             name = device.name
             room = device.room
             roomless = device.room.isEmpty
+            hidden = device.hidden ?? false
+            welcome = device.welcome ?? false
         }
     }
 
@@ -107,5 +125,8 @@ private struct RenameDeviceSheet: View {
         let newName: String? = cleanName.isEmpty || cleanName == device.hubName ? nil : cleanName
         let newRoom: String? = roomless ? "" : (cleanRoom == device.hubRoom ? nil : cleanRoom)
         await model.rename(device, name: newName, room: newRoom)
+        if hidden != (device.hidden ?? false) || welcome != (device.welcome ?? false) {
+            await model.setDevice(device, fields: ["hidden": hidden, "welcome": welcome])
+        }
     }
 }

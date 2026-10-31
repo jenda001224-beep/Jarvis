@@ -32,6 +32,7 @@ struct Prefs: Codable, Equatable {
     var night: Bool
     var nightFrom: Int
     var nightTo: Int
+    var announce: Int?
 }
 
 struct StoredSettings: Decodable {
@@ -43,6 +44,12 @@ struct StoredSettings: Decodable {
     let searchKey: Bool
     let printer: Bool
     let calendars: Int
+    let apple: Bool?
+}
+
+struct CloudStatus: Decodable {
+    let configured: Bool
+    let problem: String
 }
 
 struct Hub: Decodable {
@@ -74,6 +81,16 @@ struct DeviceState: Decodable {
     let hub: Hub
     let todosOpen: Int
     let nextAlarm: NextAlarm?
+    let quietUntil: Double?
+    let away: Bool?
+    let cloud: CloudStatus?
+
+    var quietEnd: Date? {
+        guard let quietUntil, quietUntil > 0 else {
+            return nil
+        }
+        return Date(timeIntervalSince1970: quietUntil)
+    }
 }
 
 struct Todo: Codable, Identifiable, Equatable {
@@ -220,10 +237,110 @@ struct HomeDevice: Decodable, Identifiable {
     let light: Bool
     let on: Bool
     let reachable: Bool
+    let hidden: Bool?
+    let welcome: Bool?
 
     var renamed: Bool { name != hubName || room != hubRoom }
 }
 
 struct HomeDeviceList: Decodable {
     let devices: [HomeDevice]
+}
+
+struct TimerItem: Decodable, Identifiable {
+    let id: Int
+    let label: String
+    let seconds: Int
+    let remaining: Int
+    let left: String
+}
+
+struct TimerList: Decodable {
+    let timers: [TimerItem]
+}
+
+struct Notice: Decodable, Identifiable {
+    let id: Int
+    let when: Double
+    let source: String
+    let text: String
+    let read: Bool
+
+    var date: Date { Date(timeIntervalSince1970: when) }
+}
+
+struct NoticeList: Decodable {
+    let unread: Int
+    let notices: [Notice]
+}
+
+struct MemoryStatus: Decodable {
+    let enabled: Bool
+    let available: Bool
+    let notes: String
+    let lines: Int
+}
+
+struct MemoryLine: Decodable, Identifiable {
+    let when: String
+    let unix: Double
+    let who: String
+    let text: String
+
+    var id: String { "\(unix)-\(who)-\(text.prefix(24))" }
+}
+
+struct MemoryLines: Decodable {
+    let lines: [MemoryLine]
+}
+
+struct MediaStatus: Decodable {
+    let title: String
+    let playing: Bool
+    let stations: [String]
+}
+
+struct ChatMessage: Decodable, Identifiable {
+    let seq: Int
+    let when: Double
+    let mine: Bool
+    let text: String
+
+    var id: Int { seq }
+}
+
+struct ChatLog: Decodable {
+    let busy: Bool
+    let messages: [ChatMessage]
+}
+
+struct CalendarStatus: Decodable {
+    let configured: Bool
+    let calendars: [String]
+    let error: String?
+    let appleId: String?
+    let chosen: String?
+}
+
+struct Snapshot: Decodable {
+    let state: DeviceState
+    let todos: [Todo]?
+    let alarms: [Alarm]?
+    let timers: [TimerItem]?
+    let chat: ChatLog?
+    let media: MediaStatus?
+
+    private enum CodingKeys: String, CodingKey {
+        case state, todos, alarms, timers, chat, media
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        state = try container.decode(DeviceState.self, forKey: .state)
+        todos = try? container.decode(TodoList.self, forKey: .todos).todos
+        alarms = try? container.decode(AlarmList.self, forKey: .alarms).alarms
+        timers = try? container.decode(TimerList.self, forKey: .timers).timers
+        chat = try? container.decode(ChatLog.self, forKey: .chat)
+        media = try? container.decode(MediaStatus.self, forKey: .media)
+    }
 }

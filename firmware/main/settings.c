@@ -56,6 +56,9 @@ static const stored_text_t STORED_TEXTS[] = {
     {"apple_password", sizeof(settings.apple_password), false},
     {"apple_calendar", sizeof(settings.apple_calendar), false},
     {"apple_server", sizeof(settings.apple_server), false},
+    {"cloud_key_id", sizeof(settings.cloud_key_id), false},
+    {"cloud_private_key", sizeof(settings.cloud_private_key), false},
+    {"cloud_server", sizeof(settings.cloud_server), false},
 };
 
 static const esp_partition_t *config_partition(void)
@@ -201,6 +204,9 @@ bool settings_load(void)
     copy_string(settings.apple_password, sizeof(settings.apple_password), root, "apple_password");
     copy_string(settings.apple_calendar, sizeof(settings.apple_calendar), root, "apple_calendar");
     copy_string(settings.apple_server, sizeof(settings.apple_server), root, "apple_server");
+    copy_string(settings.cloud_key_id, sizeof(settings.cloud_key_id), root, "cloud_key_id");
+    copy_string(settings.cloud_private_key, sizeof(settings.cloud_private_key), root, "cloud_private_key");
+    copy_string(settings.cloud_server, sizeof(settings.cloud_server), root, "cloud_server");
     const cJSON *calendar;
     int calendars = 0;
     cJSON_ArrayForEach(calendar, cJSON_GetObjectItemCaseSensitive(root, "calendars"))

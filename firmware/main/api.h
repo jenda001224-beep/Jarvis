@@ -29,3 +29,4 @@ typedef void (*api_handler_t)(api_call_t *call);
 void api_start(const char *version);
 void api_set_tokens(const char tokens[API_TOKENS][API_TOKEN_LENGTH + 1]);
 void api_serve(api_handler_t handler);
+bool api_call_inside(api_call_t *call);

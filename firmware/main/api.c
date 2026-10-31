@@ -140,6 +140,23 @@ static esp_err_t handle(httpd_req_t *request)
     return result;
 }
 
+bool api_call_inside(api_call_t *call)
+{
+    xSemaphoreTake(call_lock, portMAX_DELAY);
+    xSemaphoreTake(call_done, 0);
+    pending = call;
+    app_post(APP_EVENT_API);
+    bool answered = xSemaphoreTake(call_done, pdMS_TO_TICKS(REPLY_WAIT_MS)) == pdTRUE;
+    if (!answered) {
+        xSemaphoreTake(serve_lock, portMAX_DELAY);
+        answered = xSemaphoreTake(call_done, 0) == pdTRUE;
+        pending = NULL;
+        xSemaphoreGive(serve_lock);
+    }
+    xSemaphoreGive(call_lock);
+    return answered;
+}
+
 void api_serve(api_handler_t handler)
 {
     xSemaphoreTake(serve_lock, portMAX_DELAY);

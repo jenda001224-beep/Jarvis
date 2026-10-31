@@ -29,7 +29,7 @@ def collect(folder, suffix):
 
 sources = collect(NAME, ".swift")
 resources = [f"{NAME}/Assets.xcassets"]
-others = [f"{NAME}/Info.plist"]
+others = [f"{NAME}/Info.plist", f"{NAME}/{NAME}.entitlements"]
 paths = sources + resources + others
 refs = {path: oid("ref", path) for path in paths}
 builds = {path: oid("build", path) for path in sources + resources}
@@ -123,6 +123,7 @@ release_only = {"DEBUG_INFORMATION_FORMAT": "\"dwarf-with-dsym\"", "SWIFT_COMPIL
 target_settings = {
     "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
     "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
+    "CODE_SIGN_ENTITLEMENTS": f"{NAME}/{NAME}.entitlements",
     "CODE_SIGN_STYLE": "Automatic",
     "CURRENT_PROJECT_VERSION": "1",
     "DEVELOPMENT_TEAM": TEAM,

@@ -13,6 +13,7 @@
 #include "tavily.h"
 #include "todos.h"
 #include "alarms.h"
+#include "cloudmail.h"
 #include "countdown.h"
 #include "dav.h"
 #include "gemini.h"
@@ -726,6 +727,89 @@ static void test_sound(void)
     assert(station_match("Rádio Bonton") == -1);
 }
 
+static void test_chat_protocol(void)
+{
+    static const char FUNCTIONS[] =
+        "[{\"name\":\"list\",\"description\":\"d\",\"parameters\":{\"type\":\"OBJECT\",\"properties\":{}}},"
+        "{\"name\":\"add\",\"parameters\":{\"type\":\"OBJECT\",\"properties\":{\"x\":{\"type\":\"STRING\"}}}}]";
+    char *tools = gemini_tools(FUNCTIONS);
+    cJSON *root = cJSON_Parse(tools);
+    const cJSON *declarations = cJSON_GetObjectItem(cJSON_GetArrayItem(root, 0), "functionDeclarations");
+    assert(cJSON_GetArraySize(declarations) == 2);
+    assert(!cJSON_GetObjectItem(cJSON_GetArrayItem(declarations, 0), "parameters"));
+    assert(cJSON_GetObjectItem(cJSON_GetArrayItem(declarations, 1), "parameters"));
+    cJSON_Delete(root);
+
+    char *contents = gemini_append_turn(NULL, "user", "Ahoj");
+    char *body = gemini_chat_request("Pravidla", contents, tools, 50);
+    root = cJSON_Parse(body);
+    assert(cJSON_GetArraySize(cJSON_GetObjectItem(root, "contents")) == 1);
+    assert(cJSON_GetArraySize(cJSON_GetObjectItem(root, "tools")) == 1);
+    assert(cJSON_GetObjectItem(root, "systemInstruction"));
+    cJSON_Delete(root);
+    free(body);
+    free(tools);
+
+    static const char CALL[] =
+        "{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"name\":\"add\",\"args\":{\"x\":\"mléko\"}},"
+        "\"thoughtSignature\":\"sig\"},{\"text\":\"úvaha\",\"thought\":true}]}}]}";
+    gemini_turn_t turn;
+    assert(gemini_parse_turn(CALL, strlen(CALL), &turn));
+    assert(turn.call_count == 1 && strcmp(turn.calls[0].name, "add") == 0 && strstr(turn.calls[0].args, "mléko"));
+    assert(!turn.text && strstr(turn.content, "thoughtSignature"));
+    char *with_call = gemini_append_content(contents, turn.content);
+    char *results[1] = {strdup("{\"result\":\"ok\"}")};
+    char *with_answer = gemini_append_responses(with_call, turn.calls, results, 1);
+    root = cJSON_Parse(with_answer);
+    assert(cJSON_GetArraySize(root) == 3);
+    const cJSON *echoed = cJSON_GetArrayItem(cJSON_GetObjectItem(cJSON_GetArrayItem(root, 1), "parts"), 0);
+    assert(strcmp(cJSON_GetObjectItem(echoed, "thoughtSignature")->valuestring, "sig") == 0);
+    const cJSON *reply = cJSON_GetObjectItem(cJSON_GetArrayItem(cJSON_GetObjectItem(cJSON_GetArrayItem(root, 2), "parts"), 0), "functionResponse");
+    assert(strcmp(cJSON_GetObjectItem(reply, "name")->valuestring, "add") == 0);
+    assert(strcmp(cJSON_GetObjectItem(cJSON_GetObjectItem(reply, "response"), "result")->valuestring, "ok") == 0);
+    cJSON_Delete(root);
+    free(results[0]);
+    results[0] = strdup("not json");
+    char *wrapped = gemini_append_responses(NULL, turn.calls, results, 1);
+    assert(strstr(wrapped, "not json"));
+    free(wrapped);
+    free(results[0]);
+    free(with_call);
+    free(with_answer);
+    free(contents);
+    gemini_turn_free(&turn);
+
+    static const char DONE[] = "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hotovo, \"},{\"text\":\"pane.\"}]}}]}";
+    assert(gemini_parse_turn(DONE, strlen(DONE), &turn) && turn.call_count == 0 && strcmp(turn.text, "Hotovo, pane.") == 0);
+    gemini_turn_free(&turn);
+    assert(!gemini_parse_turn("{\"error\":{}}", 12, &turn));
+
+    const char *names[] = {"cmd-a", "cmd-b"};
+    char *lookup = cloud_lookup_body(names, 2);
+    root = cJSON_Parse(lookup);
+    assert(cJSON_GetArraySize(cJSON_GetObjectItem(root, "records")) == 2);
+    cJSON_Delete(root);
+    free(lookup);
+    char *modify = cloud_modify_body("forceReplace", "rep-a", "JarvisMail", 7, "AAA", NULL);
+    root = cJSON_Parse(modify);
+    const cJSON *operation = cJSON_GetArrayItem(cJSON_GetObjectItem(root, "operations"), 0);
+    assert(strcmp(cJSON_GetObjectItem(operation, "operationType")->valuestring, "forceReplace") == 0);
+    const cJSON *record = cJSON_GetObjectItem(operation, "record");
+    assert(strcmp(cJSON_GetObjectItem(record, "recordName")->valuestring, "rep-a") == 0);
+    const cJSON *fields = cJSON_GetObjectItem(record, "fields");
+    assert(cJSON_GetObjectItem(cJSON_GetObjectItem(fields, "seq"), "value")->valueint == 7);
+    assert(strcmp(cJSON_GetObjectItem(cJSON_GetObjectItem(fields, "data"), "value")->valuestring, "AAA") == 0);
+    assert(!cJSON_GetObjectItem(fields, "text"));
+    cJSON_Delete(root);
+    free(modify);
+    modify = cloud_modify_body("create", NULL, "JarvisNotice", 1, NULL, "Tisk je hotový");
+    assert(!strstr(modify, "recordName") && strstr(modify, "Tisk je hotový"));
+    free(modify);
+    char message[128];
+    cloud_signature_message("2026-10-31T08:00:00Z", "aGFzaA==", "/database/1/x/records/lookup", message, sizeof(message));
+    assert(strcmp(message, "2026-10-31T08:00:00Z:aGFzaA==:/database/1/x/records/lookup") == 0);
+}
+
 int main(void)
 {
     test_printer();
@@ -743,6 +827,7 @@ int main(void)
     test_rain_and_sun();
     test_caldav();
     test_sound();
-    puts("modules: printer, reminders, travel, weather, text prompt, search, to-dos, alarms, timers, Gemini, notices, rain, CalDAV and sound pass");
+    test_chat_protocol();
+    puts("modules: printer, reminders, travel, weather, text prompt, search, to-dos, alarms, timers, Gemini, notices, rain, CalDAV, sound and chat pass");
     return 0;
 }

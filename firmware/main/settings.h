@@ -24,6 +24,9 @@ typedef struct {
     char apple_password[40];
     char apple_calendar[48];
     char apple_server[64];
+    char cloud_key_id[80];
+    char cloud_private_key[320];
+    char cloud_server[64];
     int volume;
     int sensitivity;
     bool search;

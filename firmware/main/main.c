@@ -10,6 +10,8 @@
 #include "bsp/esp-bsp.h"
 #include "cJSON.h"
 #include "caldav.h"
+#include "chat.h"
+#include "cloud.h"
 #include "calendar.h"
 #include "console.h"
 #include "control.h"
@@ -77,6 +79,7 @@
 #define ALARM_RING_LIMIT_MS (10 * 60 * 1000)
 #define TIMER_RING_LIMIT_MS (2 * 60 * 1000)
 #define MEMORY_LINES 60
+#define CHAT_LIMIT 1000
 #define QUIET_SETTING "quiet_until"
 #define QUIET_LONGEST_MINUTES (24 * 60)
 #define ALARM_MIN_VOLUME 60
@@ -1088,10 +1091,18 @@ static void start_session(session_kind_t kind)
     ui_set_mode(spoken_first ? UI_THINKING : UI_LISTENING, NULL);
 }
 
+static char *chat_tool(const char *name, const char *args_json)
+{
+    tool_call_t call = {0};
+    strlcpy(call.name, name, sizeof(call.name));
+    call.args = (char *) args_json;
+    return run_tool(&call);
+}
+
 static void speak_notices(void)
 {
     char joined[sizeof(ANNOUNCEMENT) + CONSOLE_LINE - sizeof(NOTICE_PROMPT)];
-    if (state != STATE_IDLE || ringing || quiet_until || ui_night() || ui_lamp() || !net_connected()) {
+    if (state != STATE_IDLE || ringing || quiet_until || ui_night() || ui_lamp() || !net_connected() || watch_away()) {
         return;
     }
     if (watch_take_spoken(joined, sizeof(joined)) > 0) {
@@ -1539,6 +1550,11 @@ static int64_t ring_last;
 static int ring_restore_volume = -1;
 static alarm_t ring_alarm;
 
+static void copy_tokens(char out[API_TOKENS][API_TOKEN_LENGTH + 1])
+{
+    memcpy(out, tokens, sizeof(tokens));
+}
+
 static void load_tokens(void)
 {
     memset(tokens, 0, sizeof(tokens));
@@ -1708,6 +1724,74 @@ static void api_error(api_call_t *call, int status, const char *message)
     call->reply = json_reply(root);
 }
 
+static cJSON *state_json(void);
+
+static cJSON *reply_section(const char *path)
+{
+    api_call_t call = {.status = 200, .authorized = true, .method = API_GET};
+    strlcpy(call.path, path, sizeof(call.path));
+    lists_handle(&call);
+    cJSON *section = call.reply ? cJSON_Parse(call.reply) : NULL;
+    free(call.reply);
+    return section;
+}
+
+static uint32_t mix_mark(uint32_t mark, const char *text)
+{
+    for (const char *c = text; c && *c; c++) {
+        mark = (mark ^ (unsigned char) *c) * 16777619U;
+    }
+    return mark;
+}
+
+static void api_snapshot(api_call_t *call)
+{
+    cJSON *root = cJSON_CreateObject();
+    cJSON *state = state_json();
+    cJSON_AddItemToObject(root, "state", state);
+    static const char *const SECTIONS[] = {"/api/todos", "/api/alarms", "/api/timers"};
+    uint32_t mark = 2166136261U ^ chat_revision() ^ ((uint32_t) watch_unread() << 8);
+    for (size_t i = 0; i < sizeof(SECTIONS) / sizeof(SECTIONS[0]); i++) {
+        cJSON *section = reply_section(SECTIONS[i]);
+        if (section) {
+            cJSON_AddItemToObject(root, SECTIONS[i] + 5, section);
+        }
+    }
+    cJSON_AddItemToObject(root, "chat", chat_json());
+    cJSON_AddItemToObject(root, "media", media_json());
+    char title[64];
+    media_title(title, sizeof(title));
+    mark = mix_mark(mark, title);
+    mark ^= (uint32_t) lists_revision() + (uint32_t) reminders_revision;
+    mark = mix_mark(mark, state_name());
+    mark ^= (uint32_t) prefs.volume << 16;
+    cJSON_AddNumberToObject(root, "mark", mark);
+    call->reply = json_reply(root);
+}
+
+static void api_chat(api_call_t *call, const cJSON *body)
+{
+    if (call->method == API_POST) {
+        const cJSON *text = cJSON_GetObjectItemCaseSensitive(body, "text");
+        if (!cJSON_IsString(text) || !text->valuestring[0] || strlen(text->valuestring) > CHAT_LIMIT) {
+            api_error(call, 400, "text missing or too long");
+            return;
+        }
+        bool with_home = ikea_state() == IKEA_READY && ikea_device_count() > 0;
+        session_kind = state == STATE_IDLE ? SESSION_TEXT : session_kind;
+        char *instruction = build_instruction(with_home, NULL, 0);
+        char *functions = build_functions(with_home);
+        delivering_notices = false;
+        if (!instruction || !functions || !chat_send(text->valuestring, instruction, functions)) {
+            api_error(call, 503, "chat busy");
+            return;
+        }
+    } else if (call->method == API_DELETE) {
+        chat_clear();
+    }
+    call->reply = json_reply(chat_json());
+}
+
 static void api_media(api_call_t *call, const cJSON *body)
 {
     if (call->method == API_POST) {
@@ -1781,6 +1865,7 @@ static void api_arrived(api_call_t *call)
             }
         }
     }
+    watch_set_away(false);
     bool greeted = state == STATE_IDLE && !ringing && !quiet_until && !ui_night();
     if (greeted) {
         strlcpy(opening, ARRIVAL, sizeof(opening));
@@ -1853,6 +1938,10 @@ static cJSON *state_json(void)
     cJSON_AddNumberToObject(root, "uptime", (double) (esp_timer_get_time() / 1000000));
     cJSON_AddBoolToObject(root, "muted", audio_muted());
     cJSON_AddNumberToObject(root, "quiet_until", quiet_until);
+    cJSON_AddBoolToObject(root, "away", watch_away());
+    cJSON *cloud = cJSON_AddObjectToObject(root, "cloud");
+    cJSON_AddBoolToObject(cloud, "configured", cloud_configured());
+    cJSON_AddStringToObject(cloud, "problem", cloud_problem());
     cJSON_AddBoolToObject(root, "lamp", ui_lamp());
     cJSON_AddNumberToObject(root, "revision", lists_revision() + reminders_revision);
     cJSON *network = cJSON_AddObjectToObject(root, "network");
@@ -2168,6 +2257,14 @@ static void handle_api(api_call_t *call)
         api_arrived(call);
     } else if (strcmp(path, "/api/media") == 0) {
         api_media(call, body);
+    } else if (strcmp(path, "/api/chat") == 0) {
+        api_chat(call, body);
+    } else if (strcmp(path, "/api/snapshot") == 0) {
+        api_snapshot(call);
+    } else if (strcmp(path, "/api/presence") == 0 && call->method == API_POST) {
+        const cJSON *home = cJSON_GetObjectItemCaseSensitive(body, "home");
+        watch_set_away(cJSON_IsFalse(home));
+        call->reply = json_reply(state_json());
     } else if (strcmp(path, "/api/calendars") == 0) {
         call->reply = json_reply(caldav_status());
     } else if (strcmp(path, "/api/quiet") == 0 && call->method == API_POST) {
@@ -2466,6 +2563,7 @@ static void supervise(void)
     report(now);
     show_printer(now);
     update_home(now);
+    cloud_set_idle(state == STATE_IDLE);
     recall_tick(state == STATE_IDLE && !ringing);
     watch_quiet();
     speak_notices();
@@ -2610,6 +2708,8 @@ void app_main(void)
     control_start();
     watch_start();
     media_start();
+    chat_start(chat_tool);
+    cloud_start(copy_tokens);
     console_start();
 
     vTaskPrioritySet(NULL, CONTROL_PRIORITY);
