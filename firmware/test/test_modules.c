@@ -13,6 +13,8 @@
 #include "tavily.h"
 #include "todos.h"
 #include "alarms.h"
+#include "countdown.h"
+#include "gemini.h"
 
 static const char FULL_REPORT[] =
     "{\"print\":{\"bed_target_temper\":60.0,\"bed_temper\":59.6,\"command\":\"push_status\",\"fail_reason\":\"0\","
@@ -377,6 +379,63 @@ static void test_alarms(void)
     assert(alarms_day_bit(1) == 0x01 && alarms_day_bit(0) == 0x40);
 }
 
+static void test_timers(void)
+{
+    uint32_t pasta = countdown_add(1000, 600, "Těstoviny");
+    uint32_t tea = countdown_add(1000, 180, "");
+    assert(pasta && tea && countdown_add(1000, 0, "") == 0 && countdown_add(1000, 90000, "") == 0);
+    countdown_t list[COUNTDOWN_MAX];
+    assert(countdown_list(list, COUNTDOWN_MAX) == 2 && list[0].id == tea && list[1].id == pasta);
+    assert(countdown_list(list, 1) == 1 && list[0].id == tea);
+    assert(countdown_find("těstoviny") == pasta && countdown_find("TESTOVINY") == pasta);
+    assert(countdown_find("Těstoviny") == pasta && countdown_find("čaj") == 0);
+    countdown_t done;
+    assert(!countdown_due(180000, &done));
+    assert(countdown_due(181000, &done) && done.id == tea && !countdown_due(181000, &done));
+    assert(countdown_cancel(pasta) && !countdown_cancel(pasta));
+    for (int i = 0; i < COUNTDOWN_MAX; i++) {
+        assert(countdown_add(0, i + 1, "x"));
+    }
+    assert(countdown_add(0, 5, "x") == 0);
+    assert(countdown_clear() == COUNTDOWN_MAX && countdown_list(list, COUNTDOWN_MAX) == 0);
+    char text[16];
+    countdown_text(582000, text, sizeof(text));
+    assert(strcmp(text, "9:42") == 0);
+    countdown_text(581001, text, sizeof(text));
+    assert(strcmp(text, "9:42") == 0);
+    countdown_text(3723000, text, sizeof(text));
+    assert(strcmp(text, "1:02:03") == 0);
+    countdown_text(-5, text, sizeof(text));
+    assert(strcmp(text, "0:00") == 0);
+}
+
+static void test_gemini(void)
+{
+    char *request = gemini_text_request("Pravidla \"x\"", "Otázka\nřádek", 100);
+    cJSON *root = cJSON_Parse(request);
+    assert(root);
+    const cJSON *system = cJSON_GetArrayItem(cJSON_GetObjectItem(cJSON_GetObjectItem(root, "systemInstruction"), "parts"), 0);
+    assert(strcmp(cJSON_GetObjectItem(system, "text")->valuestring, "Pravidla \"x\"") == 0);
+    const cJSON *content = cJSON_GetArrayItem(cJSON_GetObjectItem(root, "contents"), 0);
+    assert(strcmp(cJSON_GetObjectItem(content, "role")->valuestring, "user") == 0);
+    const cJSON *part = cJSON_GetArrayItem(cJSON_GetObjectItem(content, "parts"), 0);
+    assert(strcmp(cJSON_GetObjectItem(part, "text")->valuestring, "Otázka\nřádek") == 0);
+    assert(cJSON_GetObjectItem(cJSON_GetObjectItem(root, "generationConfig"), "maxOutputTokens")->valueint == 100);
+    cJSON_Delete(root);
+    free(request);
+
+    static const char GOOD[] = "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"úvaha\",\"thought\":true},"
+                               "{\"text\":\"- Má \"},{\"text\":\"psa\"}],\"role\":\"model\"},\"finishReason\":\"STOP\"}]}";
+    char *answer = gemini_text_answer(GOOD, strlen(GOOD));
+    assert(answer && strcmp(answer, "- Má psa") == 0);
+    free(answer);
+    static const char CUT[] = "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"- Má\"}]},\"finishReason\":\"MAX_TOKENS\"}]}";
+    assert(!gemini_text_answer(CUT, strlen(CUT)));
+    static const char BLOCKED[] = "{\"promptFeedback\":{\"blockReason\":\"SAFETY\"}}";
+    assert(!gemini_text_answer(BLOCKED, strlen(BLOCKED)));
+    assert(!gemini_text_answer("nonsense", 8));
+}
+
 int main(void)
 {
     test_printer();
@@ -387,6 +446,8 @@ int main(void)
     test_search();
     test_todos();
     test_alarms();
-    puts("modules: printer, reminders, travel, weather, text prompt, search, to-dos and alarms pass");
+    test_timers();
+    test_gemini();
+    puts("modules: printer, reminders, travel, weather, text prompt, search, to-dos, alarms, timers and Gemini pass");
     return 0;
 }

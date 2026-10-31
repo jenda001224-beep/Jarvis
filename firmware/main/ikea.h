@@ -8,6 +8,8 @@ typedef struct {
     char room[32];
     char hub_name[48];
     char hub_room[32];
+    bool hidden;
+    bool welcome;
     bool light;
     bool on;
     bool reachable;
@@ -24,6 +26,8 @@ typedef struct {
     char room[32];
     bool named;
     bool roomed;
+    bool hidden;
+    bool welcome;
 } ikea_alias_t;
 
 typedef enum {

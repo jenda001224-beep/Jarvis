@@ -204,3 +204,25 @@ size_t calendar_next(char *out, size_t capacity)
     xSemaphoreGive(lock);
     return strlen(out);
 }
+
+int calendar_between(time_t from, time_t to, agenda_event_t *out, int capacity)
+{
+    if (!lock || !events) {
+        return 0;
+    }
+    int count = 0;
+    xSemaphoreTake(lock, portMAX_DELAY);
+    for (int i = 0; loaded && i < event_count && count < capacity; i++) {
+        if (agenda_overlaps(&events[i], from, to)) {
+            out[count++] = events[i];
+        }
+    }
+    xSemaphoreGive(lock);
+    return count;
+}
+
+int calendar_today_list(agenda_event_t *out, int capacity)
+{
+    time_t now = time(NULL);
+    return calendar_between(day_start(now, 0), day_start(now, 1), out, capacity);
+}

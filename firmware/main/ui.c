@@ -9,6 +9,7 @@
 #include "app.h"
 #include "audio.h"
 #include "bsp/esp-bsp.h"
+#include "driver/ledc.h"
 #include "control.h"
 #include "display.h"
 #include "esp_heap_caps.h"
@@ -17,6 +18,7 @@
 #include "freertos/idf_additions.h"
 #include "freertos/task.h"
 #include "fx.h"
+#include "lists.h"
 #include "lvgl.h"
 #include "net.h"
 #include "scene.h"
@@ -30,11 +32,12 @@
 
 #define HEARD_LIMIT 46
 #define SPOKEN_LIMIT 68
-#define DIM_PERCENT 45
+#define STANDBY_BRIGHTNESS 1
 #define DIGIT_GLYPHS 24
 #define TEXT_GLYPHS 160
 #define ICON_GLYPHS 48
 #define LAMP_BRIGHTNESS 100
+#define BACKLIGHT_OFF_DUTY 1024
 #define NIGHT_SLEEP_SECONDS 30
 #define FRAME_MS 33
 #define REST_MS 5
@@ -97,6 +100,8 @@ static bool asleep;
 static bool asleep_dark;
 static volatile bool covered;
 static lv_obj_t *cover;
+static lv_obj_t *timer_label;
+static volatile float countdown_fraction = -1.0f;
 static lv_obj_t *cover_title;
 static lv_obj_t *cover_big;
 static lv_obj_t *cover_hint;
@@ -128,6 +133,7 @@ static void show_ambient(bool visible)
 {
     set_visible(clock_label, visible);
     set_visible(date_label, visible);
+    set_visible(timer_label, visible);
     set_visible(brand_label, visible);
     set_visible(status_label, visible);
     set_visible(hint_label, visible);
@@ -195,9 +201,15 @@ static void apply_hint(void)
 
 static void set_brightness(int value)
 {
-    if (value != brightness) {
-        brightness = value;
+    if (value == brightness) {
+        return;
+    }
+    brightness = value;
+    if (value > 0) {
         bsp_display_brightness_set(value);
+    } else {
+        ledc_set_duty(LEDC_LOW_SPEED_MODE, CONFIG_BSP_DISPLAY_BRIGHTNESS_LEDC_CH, BACKLIGHT_OFF_DUTY);
+        ledc_update_duty(LEDC_LOW_SPEED_MODE, CONFIG_BSP_DISPLAY_BRIGHTNESS_LEDC_CH);
     }
 }
 
@@ -249,7 +261,7 @@ static void refresh_clock(void)
     lv_label_set_text_fmt(date_label, "%s %d. %s", DAYS[local.tm_wday], local.tm_mday, MONTHS[local.tm_mon]);
 }
 
-static bool night_now(void)
+bool ui_night(void)
 {
     if (!prefs.night || prefs.night_from == prefs.night_to || !net_time_valid()) {
         return false;
@@ -264,7 +276,7 @@ static bool night_now(void)
 
 static void fall_asleep(void)
 {
-    bool dark = prefs.dark || night_now();
+    bool dark = prefs.dark || ui_night();
     asleep = true;
     asleep_dark = dark;
     page = PAGE_AMBIENT;
@@ -277,9 +289,9 @@ static void fall_asleep(void)
         show_ambient(false);
         lv_refr_now(NULL);
         set_brightness(0);
+        fx_clear(pixels);
     } else {
-        int dimmed = prefs.brightness * DIM_PERCENT / 100;
-        set_brightness(dimmed < 5 ? 5 : dimmed);
+        set_brightness(STANDBY_BRIGHTNESS);
     }
 }
 
@@ -304,7 +316,7 @@ static void on_tick(lv_timer_t *timer)
     if (++ticks % (1000 / TICK_MS) == 0) {
         refresh_clock();
         uint32_t inactive = lv_display_get_inactive_time(NULL);
-        bool night = night_now();
+        bool night = ui_night();
         int seconds = HOME_SLEEP_SECONDS[prefs.sleep];
         if (night && (seconds == 0 || seconds > NIGHT_SLEEP_SECONDS)) {
             seconds = NIGHT_SLEEP_SECONDS;
@@ -395,6 +407,21 @@ static void home_pair(void)
     app_post(APP_EVENT_PAIR_REQUEST);
 }
 
+static void home_todo(uint32_t id, bool done)
+{
+    lists_set_todo_done(id, done);
+}
+
+static void home_timer_add(int seconds)
+{
+    lists_add_timer(seconds, "");
+}
+
+static void home_timer_cancel(uint32_t id)
+{
+    lists_cancel_timer(id);
+}
+
 static void render_task(void *arg)
 {
     fx_frame_t frame = {0};
@@ -413,6 +440,9 @@ static void render_task(void *arg)
             gettimeofday(&moment, NULL);
             scene_set_minute(((moment.tv_sec % 60) + moment.tv_usec / 1000000.0f) / 60.0f);
         }
+        float countdown = countdown_fraction;
+        scene_set_countdown(countdown >= 0.0f);
+        fx_set_countdown(countdown);
         scene_set_levels(wake_microphone_level() / 100.0f, audio_output_level() / 100.0f);
         scene_step(seconds, &frame);
         if (repaint) {
@@ -478,6 +508,9 @@ static void build(void)
         .lamp = home_lamp,
         .prefs = home_prefs,
         .pair = home_pair,
+        .todo = home_todo,
+        .timer_add = home_timer_add,
+        .timer_cancel = home_timer_cancel,
     };
 
     lv_obj_t *screen = lv_screen_active();
@@ -496,6 +529,8 @@ static void build(void)
     lv_obj_align(clock_label, LV_ALIGN_TOP_MID, 0, 150);
     date_label = make_label(screen, font_small, COLOR_MUTED, 3, "");
     lv_obj_align(date_label, LV_ALIGN_TOP_MID, 0, 264);
+    timer_label = make_label(screen, font_small, COLOR_ACCENT, 2, "");
+    lv_obj_align(timer_label, LV_ALIGN_TOP_MID, 0, 290);
 
     hint_label = make_label(screen, font_caption, COLOR_DIM, 3, "STARTUJI");
     lv_obj_set_width(hint_label, 440);
@@ -758,6 +793,14 @@ void ui_home_update(home_data_t *data)
     }
     bsp_display_lock(0);
     home_update(data);
+    if (data->timer_count > 0) {
+        const home_timer_t *timer = &data->timers[0];
+        lv_label_set_text_fmt(timer_label, "%s %s", timer->label[0] ? timer->label : "ČASOVAČ", timer->left);
+        countdown_fraction = timer->seconds > 0 ? (float) timer->remaining / (float) timer->seconds : 0.0f;
+    } else if (countdown_fraction >= 0.0f) {
+        lv_label_set_text(timer_label, "");
+        countdown_fraction = -1.0f;
+    }
     bsp_display_unlock();
 }
 

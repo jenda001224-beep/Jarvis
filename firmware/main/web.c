@@ -126,14 +126,23 @@ char *web_get(const char *url, size_t limit, size_t *length)
     return body.data;
 }
 
-char *web_post(const char *url, const char *authorization, const char *body, size_t limit, int *status, size_t *length)
+static const esp_http_client_method_t METHODS[] = {
+    [WEB_GET] = HTTP_METHOD_GET,
+    [WEB_POST] = HTTP_METHOD_POST,
+    [WEB_PUT] = HTTP_METHOD_PUT,
+    [WEB_DELETE] = HTTP_METHOD_DELETE,
+    [WEB_PROPFIND] = HTTP_METHOD_PROPFIND,
+    [WEB_REPORT] = HTTP_METHOD_REPORT,
+};
+
+char *web_request(const web_request_t *request, int *status, size_t *length)
 {
     char agent[128];
     user_agent(agent, sizeof(agent));
     const esp_http_client_config_t config = {
-        .url = url,
-        .method = HTTP_METHOD_POST,
-        .timeout_ms = TIMEOUT_MS,
+        .url = request->url,
+        .method = METHODS[request->method],
+        .timeout_ms = request->timeout_ms ? request->timeout_ms : TIMEOUT_MS,
         .buffer_size = 4096,
         .buffer_size_tx = 2048,
         .user_agent = agent,
@@ -142,14 +151,15 @@ char *web_post(const char *url, const char *authorization, const char *body, siz
     *status = 0;
     esp_http_client_handle_t client = esp_http_client_init(&config);
     char *chunk = heap_caps_malloc(CHUNK, MALLOC_CAP_SPIRAM);
-    body_t received = {.limit = limit};
+    body_t received = {.limit = request->limit};
     bool complete = false;
-    int body_length = (int) strlen(body);
+    int body_length = request->body ? (int) strlen(request->body) : 0;
     if (client && chunk) {
-        esp_http_client_set_header(client, "Content-Type", "application/json");
-        esp_http_client_set_header(client, "Authorization", authorization);
+        for (int i = 0; i < request->header_count; i++) {
+            esp_http_client_set_header(client, request->headers[i].name, request->headers[i].value);
+        }
         if (esp_http_client_open(client, body_length) == ESP_OK &&
-            esp_http_client_write(client, body, body_length) == body_length &&
+            (body_length == 0 || esp_http_client_write(client, request->body, body_length) == body_length) &&
             esp_http_client_fetch_headers(client) >= 0) {
             *status = esp_http_client_get_status_code(client);
             for (;;) {
@@ -158,7 +168,9 @@ char *web_post(const char *url, const char *authorization, const char *body, siz
                     complete = count == 0 && esp_http_client_is_complete_data_received(client);
                     break;
                 }
-                if (!collect(&received, chunk, (size_t) count)) {
+                bool kept = request->sink ? request->sink(request->context, chunk, (size_t) count)
+                                          : collect(&received, chunk, (size_t) count);
+                if (!kept) {
                     break;
                 }
             }
@@ -170,12 +182,34 @@ char *web_post(const char *url, const char *authorization, const char *body, siz
     if (client) {
         esp_http_client_cleanup(client);
     }
-    if (!complete || *status != 200 || !received.data) {
+    if (!complete) {
         free(received.data);
+        if (*status >= 200 && *status < 300) {
+            *status = 0;
+        }
         return NULL;
     }
     if (length) {
         *length = received.length;
     }
     return received.data;
+}
+
+char *web_post(const char *url, const char *authorization, const char *body, size_t limit, int *status, size_t *length)
+{
+    const web_header_t headers[] = {{"Content-Type", "application/json"}, {"Authorization", authorization}};
+    const web_request_t request = {
+        .url = url,
+        .method = WEB_POST,
+        .headers = headers,
+        .header_count = 2,
+        .body = body,
+        .limit = limit,
+    };
+    char *answer = web_request(&request, status, length);
+    if (answer && *status != 200) {
+        free(answer);
+        return NULL;
+    }
+    return answer;
 }

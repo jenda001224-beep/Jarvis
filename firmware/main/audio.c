@@ -37,6 +37,8 @@ static volatile bool playing;
 static volatile bool flush_requested;
 static volatile bool draining;
 static volatile bool muted;
+static bool held_mute;
+static bool volume_zero;
 static volatile int output_level;
 static volatile uint32_t played_samples;
 static volatile uint32_t underruns;
@@ -185,7 +187,8 @@ esp_err_t audio_init(int volume)
         esp_codec_dev_open(microphone, &format) != ESP_CODEC_DEV_OK) {
         return ESP_FAIL;
     }
-    muted = volume <= 0;
+    volume_zero = volume <= 0;
+    muted = volume_zero;
     esp_codec_dev_set_out_vol(speaker, volume);
     esp_codec_dev_set_out_mute(speaker, muted);
     esp_codec_dev_set_in_gain(microphone, MICROPHONE_GAIN_DB);
@@ -242,17 +245,24 @@ void audio_flush(void)
     flush_requested = true;
 }
 
+static void apply_mute(void)
+{
+    muted = held_mute || volume_zero;
+    esp_codec_dev_set_out_mute(speaker, muted);
+}
+
 void audio_set_muted(bool value)
 {
-    muted = value;
-    esp_codec_dev_set_out_mute(speaker, value);
+    held_mute = value;
+    apply_mute();
 }
 
 void audio_set_volume(int volume)
 {
     volume = volume < 0 ? 0 : volume > 100 ? 100 : volume;
     esp_codec_dev_set_out_vol(speaker, volume);
-    audio_set_muted(volume == 0);
+    volume_zero = volume == 0;
+    apply_mute();
 }
 
 bool audio_muted(void)

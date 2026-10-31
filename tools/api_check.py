@@ -34,7 +34,7 @@ def expect(condition, message):
 def main():
     address = sys.argv[1] if len(sys.argv) > 1 else "jarvis.local"
     base = f"http://{address}"
-    monitor = subprocess.Popen([sys.executable, str(ROOT / "tools" / "bench.py"), "log", "--port", "/dev/cu.usbmodem14101", "--seconds", "90"],
+    monitor = subprocess.Popen([sys.executable, str(ROOT / "tools" / "bench.py"), "log", "--seconds", "90"],
                                stdout=open(LOG, "w"), stderr=subprocess.STDOUT)
     try:
         time.sleep(25)

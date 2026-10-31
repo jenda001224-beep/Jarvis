@@ -97,6 +97,9 @@ static void action_prefs(const home_prefs_t *prefs)
            prefs->brightness, prefs->sleep, prefs->dark, prefs->orientation, prefs->sensitivity);
 }
 static void action_pair(void) { printf("action: pair\n"); }
+static void action_todo(uint32_t id, bool done) { printf("action: todo %u %s\n", (unsigned) id, done ? "done" : "open"); }
+static void action_timer_add(int seconds) { printf("action: timer %d s\n", seconds); }
+static void action_timer_cancel(uint32_t id) { printf("action: cancel timer %u\n", (unsigned) id); }
 
 static void add(home_data_t *data, const char *id, const char *name, const char *room, home_kind_t kind, bool on,
                 int level, bool color)
@@ -140,8 +143,8 @@ int main(int argc, char **argv)
         .icon = FONT("icons.ttf", 22),
         .icon_large = FONT("icons.ttf", 40),
     };
-    home_actions_t actions = {action_power, action_level, action_white, action_hue,
-                              action_talk,  action_lamp,  action_prefs, action_pair};
+    home_actions_t actions = {action_power, action_level, action_white, action_hue, action_talk, action_lamp,
+                              action_prefs, action_pair, action_todo, action_timer_add, action_timer_cancel};
     lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(0), 0);
     home_create(lv_screen_active(), &faces, &actions);
 
@@ -156,6 +159,16 @@ int main(int argc, char **argv)
     snprintf(data.event, sizeof(data.event), "11:00 Doktor");
     data.reminders = 1;
     data.todos = 3;
+    data.timer_count = 2;
+    data.timers[0] = (home_timer_t) {.id = 7, .seconds = 600, .remaining = 582, .label = "Těstoviny", .left = "9:42"};
+    data.timers[1] = (home_timer_t) {.id = 8, .seconds = 3600, .remaining = 3000, .left = "50:00"};
+    data.todo_count = 3;
+    data.todo_items[0] = (home_todo_t) {.id = 1, .text = "Sbalit si věci na výlet a nezapomenout nabíječku od foťáku"};
+    data.todo_items[1] = (home_todo_t) {.id = 2, .text = "Koupit mléko"};
+    data.todo_items[2] = (home_todo_t) {.id = 3, .done = true, .text = "Zavolat doktorovi"};
+    data.agenda_count = 2;
+    data.agenda[0] = (home_event_t) {.when = "11:00", .title = "Doktor"};
+    data.agenda[1] = (home_event_t) {.when = "celý den", .title = "Výlet"};
     snprintf(data.alarm, sizeof(data.alarm), "7:00");
     data.hub = HOME_HUB_READY;
     data.prefs = (home_prefs_t) {.volume = 70, .brightness = 100, .sleep = 1, .dark = 0, .orientation = 0, .sensitivity = 1,
@@ -170,6 +183,19 @@ int main(int argc, char **argv)
     home_update(&data);
     run(200);
     save(folder, "home");
+
+    static const touch_t open_today[] = {{300, 96, 440, true}, {360, 96, 440, false}};
+    script = open_today;
+    script_length = 2;
+    run(600);
+    save(folder, "today");
+    static const touch_t close_today[] = {{1000, 46, 46, true}, {1060, 46, 46, false}};
+    script = close_today;
+    script_length = 2;
+    run(600);
+    clock_ms = 0;
+    script = NULL;
+    script_length = 0;
 
     static const touch_t long_press[] = {{300, 360, 240, true}, {1100, 360, 240, false}};
     script = long_press;

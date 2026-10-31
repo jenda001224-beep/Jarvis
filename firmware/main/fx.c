@@ -30,6 +30,9 @@
 #endif
 #define EDGE_STEPS 256
 #define PI 3.14159265358979f
+#define COUNTDOWN_STEP 0.0015f
+#define COUNTDOWN_TRACK 34
+#define COUNTDOWN_SOFT 18
 
 typedef struct {
     uint16_t radius;
@@ -86,6 +89,8 @@ static uint8_t bottom_step[FX_WIDTH];
 static uint16_t ramp[FX_RINGS][256];
 static radial_t radial[RADIAL_ENTRIES];
 static float ramp_warmth = -1.0f;
+static float shown_countdown = -1.0f;
+static bool ring_dirty[FX_RINGS];
 static ring_state_t shown[FX_RINGS];
 static uint8_t dark[RADIAL_ENTRIES];
 static float shown_extent;
@@ -131,16 +136,48 @@ static float arc(float degrees, float start, float length, float soft)
     return smooth(0.0f, soft, offset) * (1.0f - smooth(length - soft, length, offset));
 }
 
-static void build_patterns(void)
+static void build_segments(void)
 {
     for (int i = 0; i < ANGLES; i++) {
         float degrees = i * 360.0f / ANGLES;
-
         float segments = 0.0f;
         for (int k = 0; k < 3; k++) {
             segments += arc(degrees, k * 120.0f, 86.0f, 2.0f);
         }
-        pattern[0][i] = (uint8_t) (255.0f * clampf(segments, 0.0f, 1.0f));
+        pattern[FX_COUNTDOWN_RING][i] = (uint8_t) (255.0f * clampf(segments, 0.0f, 1.0f));
+    }
+}
+
+void fx_set_countdown(float fraction)
+{
+    if (fraction < 0.0f) {
+        if (shown_countdown >= 0.0f) {
+            shown_countdown = -1.0f;
+            build_segments();
+            ring_dirty[FX_COUNTDOWN_RING] = true;
+        }
+        return;
+    }
+    if (shown_countdown >= 0.0f && fabsf(fraction - shown_countdown) < COUNTDOWN_STEP) {
+        return;
+    }
+    shown_countdown = fraction;
+    int lit = (int) (clampf(fraction, 0.0f, 1.0f) * ANGLES);
+    for (int i = 0; i < ANGLES; i++) {
+        int along = (QUADRANT - i) & ANGLE_MASK;
+        int inside = lit - along;
+        int value = inside <= 0 ? COUNTDOWN_TRACK : inside >= COUNTDOWN_SOFT ? 255
+                                                  : COUNTDOWN_TRACK + (255 - COUNTDOWN_TRACK) * inside / COUNTDOWN_SOFT;
+        pattern[FX_COUNTDOWN_RING][i] = (uint8_t) value;
+    }
+    ring_dirty[FX_COUNTDOWN_RING] = true;
+}
+
+static void build_patterns(void)
+{
+    build_segments();
+    for (int i = 0; i < ANGLES; i++) {
+        float degrees = i * 360.0f / ANGLES;
 
         float within = fmodf(degrees, 5.0f);
         int index = (int) (degrees / 5.0f);
@@ -347,7 +384,7 @@ static bool update_ring(int b, const fx_ring_t *ring, bool everything, span_t *s
     ring_state_t *now = &shown[b];
     float drift = fabsf(next.turn - now->turn);
     drift = drift > 0.5f ? 1.0f - drift : drift;
-    bool changed = next.visible != now->visible ||
+    bool changed = ring_dirty[b] || next.visible != now->visible ||
                    (next.visible && (fabsf(next.radius - now->radius) >= RADIUS_STEP ||
                                      fabsf(next.alpha - now->alpha) >= ALPHA_STEP ||
                                      drift * 2.0f * PI * next.radius >= TURN_STEP));
@@ -363,6 +400,7 @@ static bool update_ring(int b, const fx_ring_t *ring, bool everything, span_t *s
         add_span(spans, count, next.radius - reach, next.radius + reach);
     }
     *now = next;
+    ring_dirty[b] = false;
     return true;
 }
 
@@ -647,6 +685,12 @@ void fx_invalidate(void)
 {
     shown_valid = false;
     edge_strength = -1;
+}
+
+void fx_clear(uint16_t *framebuffer)
+{
+    memset(framebuffer, 0, FX_WIDTH * FX_HEIGHT * sizeof(uint16_t));
+    fx_invalidate();
 }
 
 void fx_render_orb(uint16_t *framebuffer, int center_y, float radius, float energy, float turn)

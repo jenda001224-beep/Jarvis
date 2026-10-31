@@ -57,6 +57,7 @@ static float edge_turn;
 static float level;
 static float clock_seconds;
 static volatile float minute_fraction = -1.0f;
+static volatile bool countdown_active;
 
 static void advance(spring_t *spring, float seconds)
 {
@@ -101,6 +102,11 @@ void scene_set_hole(bool keep_centre_clear)
 void scene_set_minute(float fraction)
 {
     minute_fraction = fraction;
+}
+
+void scene_set_countdown(bool active)
+{
+    countdown_active = active;
 }
 
 void scene_set_levels(float microphone, float speaker)
@@ -155,7 +161,8 @@ void scene_step(float seconds, fx_frame_t *frame)
     }
 
     for (int i = 0; i < FX_RINGS; i++) {
-        approach(&alpha[i], pose->alpha[i], FADE_RATE, seconds);
+        bool counting = countdown_active && i == FX_COUNTDOWN_RING;
+        approach(&alpha[i], counting ? 1.0f : pose->alpha[i], FADE_RATE, seconds);
         approach(&speed[i], pose->speed[i], 3.0f, seconds);
         turn[i] += speed[i] * seconds;
         if (i == SECONDS_RING && current == SCENE_IDLE && minute_fraction >= 0.0f) {
@@ -164,7 +171,7 @@ void scene_step(float seconds, fx_frame_t *frame)
             gap -= floorf(gap + 0.5f);
             turn[i] += gap * (1.0f - expf(-5.0f * seconds)) - speed[i] * seconds;
         }
-        turn[i] -= floorf(turn[i]);
+        turn[i] = counting ? 0.0f : turn[i] - floorf(turn[i]);
         frame->ring[i].radius = radius[i].value;
         frame->ring[i].alpha = alpha[i] * (current == SCENE_IDLE ? 0.94f + 0.06f * breath : 0.86f + 0.14f * level);
         frame->ring[i].turn = turn[i];

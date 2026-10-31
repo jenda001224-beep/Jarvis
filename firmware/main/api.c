@@ -11,7 +11,7 @@
 #include "freertos/semphr.h"
 #include "mdns.h"
 
-#define BODY_LIMIT 4096
+#define BODY_LIMIT 8192
 #define REPLY_WAIT_MS 5000
 #define SERVER_STACK 6144
 #define URI_HANDLERS 6

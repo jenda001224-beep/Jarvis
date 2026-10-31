@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "lvgl.h"
 
@@ -35,6 +36,28 @@ typedef struct {
 } home_device_t;
 
 #define HOME_SLEEP_CHOICES 5
+#define HOME_TIMERS 4
+#define HOME_TODOS 14
+#define HOME_AGENDA 8
+
+typedef struct {
+    uint32_t id;
+    int seconds;
+    int remaining;
+    char label[40];
+    char left[12];
+} home_timer_t;
+
+typedef struct {
+    uint32_t id;
+    bool done;
+    char text[80];
+} home_todo_t;
+
+typedef struct {
+    char when[16];
+    char title[72];
+} home_event_t;
 
 typedef struct {
     int volume;
@@ -60,6 +83,13 @@ typedef struct {
     int reminders;
     int todos;
     char alarm[24];
+    char quiet[24];
+    int timer_count;
+    home_timer_t timers[HOME_TIMERS];
+    int todo_count;
+    home_todo_t todo_items[HOME_TODOS];
+    int agenda_count;
+    home_event_t agenda[HOME_AGENDA];
     home_hub_t hub;
     int device_count;
     home_device_t devices[HOME_DEVICES];
@@ -76,6 +106,9 @@ typedef struct {
     void (*lamp)(void);
     void (*prefs)(const home_prefs_t *prefs);
     void (*pair)(void);
+    void (*todo)(uint32_t id, bool done);
+    void (*timer_add)(int seconds);
+    void (*timer_cancel)(uint32_t id);
 } home_actions_t;
 
 typedef struct {

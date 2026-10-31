@@ -6,10 +6,10 @@
 
 #include "app.h"
 #include "cJSON.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "settings.h"
-#include "todos.h"
 
 #define NVS_TODOS "todos"
 #define NVS_ALARMS "alarms"
@@ -117,13 +117,13 @@ static cJSON *todo_json(const todo_t *todo)
 static cJSON *todos_json(void)
 {
     static todo_t list[TODOS_MAX];
+    cJSON *array = cJSON_CreateArray();
     xSemaphoreTake(lock, portMAX_DELAY);
     int count = todos_list(list, TODOS_MAX);
-    xSemaphoreGive(lock);
-    cJSON *array = cJSON_CreateArray();
     for (int i = 0; i < count; i++) {
         cJSON_AddItemToArray(array, todo_json(&list[i]));
     }
+    xSemaphoreGive(lock);
     return array;
 }
 
@@ -172,14 +172,106 @@ static cJSON *alarm_json(const alarm_t *alarm, bool spoken)
 static cJSON *alarms_json(bool spoken)
 {
     static alarm_t list[ALARMS_MAX];
+    cJSON *array = cJSON_CreateArray();
     xSemaphoreTake(lock, portMAX_DELAY);
     int count = alarms_list(list, ALARMS_MAX);
-    xSemaphoreGive(lock);
-    cJSON *array = cJSON_CreateArray();
     for (int i = 0; i < count; i++) {
         cJSON_AddItemToArray(array, alarm_json(&list[i], spoken));
     }
+    xSemaphoreGive(lock);
     return array;
+}
+
+static int64_t now_ms(void)
+{
+    return esp_timer_get_time() / 1000;
+}
+
+static cJSON *timers_json(void)
+{
+    countdown_t list[COUNTDOWN_MAX];
+    int count = lists_timers(list, COUNTDOWN_MAX);
+    int64_t now = now_ms();
+    cJSON *array = cJSON_CreateArray();
+    for (int i = 0; i < count; i++) {
+        char left[16];
+        countdown_text(list[i].ends_ms - now, left, sizeof(left));
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddNumberToObject(item, "id", list[i].id);
+        cJSON_AddStringToObject(item, "label", list[i].label);
+        cJSON_AddNumberToObject(item, "seconds", list[i].seconds);
+        cJSON_AddNumberToObject(item, "remaining", (double) ((list[i].ends_ms - now + 999) / 1000));
+        cJSON_AddStringToObject(item, "left", left);
+        cJSON_AddItemToArray(array, item);
+    }
+    return array;
+}
+
+int lists_timers(countdown_t *out, int capacity)
+{
+    xSemaphoreTake(lock, portMAX_DELAY);
+    int count = countdown_list(out, capacity);
+    xSemaphoreGive(lock);
+    return count;
+}
+
+uint32_t lists_add_timer(int seconds, const char *label)
+{
+    xSemaphoreTake(lock, portMAX_DELAY);
+    uint32_t id = countdown_add(now_ms(), seconds, label);
+    xSemaphoreGive(lock);
+    if (id) {
+        revision++;
+    }
+    return id;
+}
+
+void lists_cancel_timer(uint32_t id)
+{
+    xSemaphoreTake(lock, portMAX_DELAY);
+    bool cancelled = countdown_cancel(id);
+    xSemaphoreGive(lock);
+    if (cancelled) {
+        revision++;
+    }
+}
+
+bool lists_due_timer(countdown_t *out)
+{
+    xSemaphoreTake(lock, portMAX_DELAY);
+    bool due = countdown_due(now_ms(), out);
+    xSemaphoreGive(lock);
+    if (due) {
+        revision++;
+    }
+    return due;
+}
+
+bool lists_set_todo_done(uint32_t id, bool done)
+{
+    xSemaphoreTake(lock, portMAX_DELAY);
+    bool known = todos_set_done(id, done);
+    xSemaphoreGive(lock);
+    if (known) {
+        changed();
+    }
+    return known;
+}
+
+int lists_todos(todo_t *out, int capacity)
+{
+    xSemaphoreTake(lock, portMAX_DELAY);
+    int count = todos_list(out, capacity);
+    xSemaphoreGive(lock);
+    return count;
+}
+
+int lists_alarms(alarm_t *out, int capacity)
+{
+    xSemaphoreTake(lock, portMAX_DELAY);
+    int count = alarms_list(out, capacity);
+    xSemaphoreGive(lock);
+    return count;
 }
 
 static uint32_t number_of(const cJSON *object, const char *key)
@@ -329,6 +421,59 @@ char *lists_tool_cancel_alarm(const char *args_json)
     }
     changed();
     return reply("result", "budík zrušen");
+}
+
+char *lists_tool_set_timer(const char *args_json)
+{
+    cJSON *args = cJSON_Parse(args_json);
+    const cJSON *minutes = cJSON_GetObjectItemCaseSensitive(args, "minutes");
+    const cJSON *seconds = cJSON_GetObjectItemCaseSensitive(args, "seconds");
+    const char *label = text_of(args, "label");
+    double total = (cJSON_IsNumber(minutes) ? minutes->valuedouble * 60.0 : 0.0) +
+                   (cJSON_IsNumber(seconds) ? seconds->valuedouble : 0.0);
+    int length = (int) (total + 0.5);
+    uint32_t id = length > 0 ? lists_add_timer(length, label ? label : "") : 0;
+    cJSON_Delete(args);
+    if (!id) {
+        return reply("error", length > 0 ? "Víc časovačů najednou neumím, nebo je ten čas moc dlouhý." : "Chybí, na jak dlouho.");
+    }
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "result", "časovač běží");
+    cJSON_AddNumberToObject(root, "id", id);
+    cJSON_AddNumberToObject(root, "seconds", length);
+    return print(root);
+}
+
+char *lists_tool_list_timers(void)
+{
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddItemToObject(root, "timers", timers_json());
+    return print(root);
+}
+
+char *lists_tool_cancel_timer(const char *args_json)
+{
+    cJSON *args = cJSON_Parse(args_json);
+    uint32_t id = number_of(args, "id");
+    const char *label = text_of(args, "label");
+    bool all = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(args, "all"));
+    countdown_t list[COUNTDOWN_MAX];
+    xSemaphoreTake(lock, portMAX_DELAY);
+    if (!id && label) {
+        id = countdown_find(label);
+    }
+    int running = countdown_list(list, COUNTDOWN_MAX);
+    if (!id && !label && running == 1) {
+        id = list[0].id;
+    }
+    bool done = all ? countdown_clear() > 0 : countdown_cancel(id);
+    xSemaphoreGive(lock);
+    cJSON_Delete(args);
+    if (!done) {
+        return reply("error", running ? "Který časovač myslíte? Běží jich víc." : "Žádný časovač neběží.");
+    }
+    revision++;
+    return reply("result", "časovač zrušen");
 }
 
 static void answer(api_call_t *call, int status, cJSON *root)
@@ -493,12 +638,33 @@ static void handle_alarms(api_call_t *call, uint32_t id, const cJSON *body)
     answer(call, 200, root);
 }
 
+static void handle_timers(api_call_t *call, uint32_t id, const cJSON *body)
+{
+    if (call->method == API_POST && !id) {
+        const cJSON *seconds = cJSON_GetObjectItemCaseSensitive(body, "seconds");
+        const char *label = text_of(body, "label");
+        if (!cJSON_IsNumber(seconds) || !lists_add_timer(seconds->valueint, label ? label : "")) {
+            fail(call, 400, "bad timer");
+            return;
+        }
+    } else if (call->method == API_DELETE && id) {
+        lists_cancel_timer(id);
+    } else if (call->method != API_GET || id) {
+        fail(call, 404, "not found");
+        return;
+    }
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddItemToObject(root, "timers", timers_json());
+    answer(call, 200, root);
+}
+
 bool lists_handle(api_call_t *call)
 {
     const char *path = call->path;
     bool todos = strncmp(path, "/api/todos", 10) == 0 && (path[10] == 0 || path[10] == '/');
     bool alarms = strncmp(path, "/api/alarms", 11) == 0 && (path[11] == 0 || path[11] == '/');
-    if (!todos && !alarms) {
+    bool timers = strncmp(path, "/api/timers", 11) == 0 && (path[11] == 0 || path[11] == '/');
+    if (!todos && !alarms && !timers) {
         return false;
     }
     const char *tail = path + (todos ? 10 : 11);
@@ -510,8 +676,10 @@ bool lists_handle(api_call_t *call)
     }
     if (todos) {
         handle_todos(call, id, body);
-    } else {
+    } else if (alarms) {
         handle_alarms(call, id, body);
+    } else {
+        handle_timers(call, id, body);
     }
     cJSON_Delete(body);
     return true;

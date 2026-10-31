@@ -21,5 +21,6 @@ void scene_set_mode(scene_mode_t mode);
 void scene_set_hole(bool keep_centre_clear);
 void scene_set_levels(float microphone, float speaker);
 void scene_set_minute(float fraction);
+void scene_set_countdown(bool active);
 void scene_step(float seconds, fx_frame_t *frame);
 bool scene_settled(void);

@@ -34,6 +34,7 @@
 #include "freertos/semphr.h"
 #include "net.h"
 #include "printer.h"
+#include "recall.h"
 #include "reminders.h"
 #include "search.h"
 #include "settings.h"
@@ -72,6 +73,10 @@
 #define PAIRING_ATTEMPTS 5
 #define ALARM_GAP_MS 2500
 #define ALARM_RING_LIMIT_MS (10 * 60 * 1000)
+#define TIMER_RING_LIMIT_MS (2 * 60 * 1000)
+#define MEMORY_LINES 60
+#define QUIET_SETTING "quiet_until"
+#define QUIET_LONGEST_MINUTES (24 * 60)
 #define ALARM_MIN_VOLUME 60
 #define RESTART_DELAY_MS 1500
 #define SAY_LIMIT 160
@@ -138,7 +143,9 @@ static const char PERSONA[] =
     "co mu máš říct. Když ti systém oznámí, že nastal čas připomínky, promluv na pána sám: oslov ho, řekni mu to "
     "a zeptej se, jestli tě slyší. Vedeš pánovi seznam úkolů: zapisuješ add_todo, čteš list_todos, odškrtáváš "
     "complete_todo a mažeš remove_todo; seznam vidí i v telefonu. Budík (set_alarm) zvoní každý den nebo ve "
-    "vybrané dny, připomínka jen jednou promluví; když pán řekne „vzbuď mě“ nebo „budík“, nastav budík.";
+    "vybrané dny, připomínka jen jednou promluví; když pán řekne „vzbuď mě“ nebo „budík“, nastav budík. "
+    "Když řekne „dej deset minut“, „časovač“ nebo „stopni mi to“, spusť set_timer; když chce, abys mu za chvíli "
+    "něco řekl, použij připomínku.";
 
 static const char ALARM_GREETING[] =
     "Právě zazvonil budík%s a pán ho vypnul. Pozdrav ho podle denní doby, řekni kolik je hodin a ve třech krátkých "
@@ -156,6 +163,20 @@ static const char OWN_SEARCHING[] =
 
 static const char NOT_SEARCHING[] =
     "Na internetu teď hledat neumíš. Když se pán ptá na zprávy nebo jiné čerstvé informace, řekni to jednou větou.";
+
+static const char MEMORY[] =
+    "Pamatuješ si automaticky všechno, o čem s pánem mluvíš: každý rozhovor se ukládá a důležité věci se po něm zapíší "
+    "do poznámek. Co víš, používej přirozeně, nepředčítej to a nechlub se tím. Když se pán ptá na něco, o čem jste mluvili "
+    "dřív, a níže to není, zavolej search_memory. Když výslovně řekne, ať si něco zapamatuješ, zavolej remember. "
+    "Když si přeje, abys na něco zapomněl, zavolej forget.";
+
+static const char MEMORY_FUNCTIONS[] =
+    "{\"name\":\"search_memory\",\"description\":\"Prohledá všechny dřívější rozhovory s pánem podle klíčových slov.\","
+    "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{\"query\":{\"type\":\"STRING\"}},\"required\":[\"query\"]}},"
+    "{\"name\":\"remember\",\"description\":\"Hned zapíše fakt do trvalých poznámek o pánovi. Piš stručně, relativní časy jako včera nebo příští středu převeď na konkrétní datum.\","
+    "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{\"text\":{\"type\":\"STRING\"}},\"required\":[\"text\"]}},"
+    "{\"name\":\"forget\",\"description\":\"Smaže z paměti všechno, co obsahuje zadaná slova. Jen když si to pán výslovně přeje.\","
+    "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{\"text\":{\"type\":\"STRING\"}},\"required\":[\"text\"]}}";
 
 static const char HOME[] =
     "Ovládáš světla, LED pásky a zásuvky IKEA. Použij nástroj set_devices s id ze seznamu níže; stav zjistíš "
@@ -181,6 +202,11 @@ static const char TRAVEL[] =
 static const char ANNOUNCEMENT[] =
     "Zpráva od systému: nastal čas připomínky „%s“. Oslov pána, řekni mu to jednou nebo dvěma větami a zeptej se, "
     "jestli tě slyší.";
+
+static const char QUIET_FUNCTION[] =
+    "{\"name\":\"set_quiet\",\"description\":\"Na daný počet minut umlčí tvůj hlas a zvuky, odpovědi se jen ukazují na displeji. "
+    "Budíky a časovače zvoní dál. 0 ticho zruší.\","
+    "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{\"minutes\":{\"type\":\"INTEGER\"}},\"required\":[\"minutes\"]}}";
 
 static const char DISPLAY_FUNCTION[] =
     "{\"name\":\"display_light\",\"description\":\"Rozsvítí nebo zhasne displej asistenta jako bílou lampičku.\","
@@ -219,7 +245,17 @@ static const char LIST_FUNCTIONS[] =
     "{\"name\":\"list_alarms\",\"description\":\"Vrátí nastavené budíky.\","
     "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{}}},"
     "{\"name\":\"cancel_alarm\",\"description\":\"Smaže budík podle id z list_alarms.\","
-    "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{\"id\":{\"type\":\"INTEGER\"}},\"required\":[\"id\"]}}";
+    "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{\"id\":{\"type\":\"INTEGER\"}},\"required\":[\"id\"]}},"
+    "{\"name\":\"set_timer\",\"description\":\"Spustí časovač s odpočtem na displeji. Až doběhne, zazvoní.\","
+    "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{"
+    "\"minutes\":{\"type\":\"NUMBER\",\"description\":\"Počet minut\"},"
+    "\"seconds\":{\"type\":\"INTEGER\",\"description\":\"Počet sekund, sečte se s minutami\"},"
+    "\"label\":{\"type\":\"STRING\",\"description\":\"Na co je, třeba Těstoviny\"}}}},"
+    "{\"name\":\"list_timers\",\"description\":\"Vrátí běžící časovače a kolik zbývá.\","
+    "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{}}},"
+    "{\"name\":\"cancel_timer\",\"description\":\"Zruší časovač podle id nebo popisu; all zruší všechny.\","
+    "\"parameters\":{\"type\":\"OBJECT\",\"properties\":{\"id\":{\"type\":\"INTEGER\"},"
+    "\"label\":{\"type\":\"STRING\"},\"all\":{\"type\":\"BOOLEAN\"}}}}";
 
 static const char SEARCH_FUNCTION[] =
     "{\"name\":\"search_web\",\"description\":\"Vyhledá na internetu aktuální informace a vrátí krátkou odpověď "
@@ -396,12 +432,14 @@ static void on_heard(const char *text)
     }
     heard_letters += letters;
     ESP_LOGI(TAG, "heard: %s", text);
+    recall_heard(text);
     ui_append_heard(text);
 }
 
 static void on_spoken(const char *text)
 {
     ESP_LOGI(TAG, "said: %s", text);
+    recall_spoken(text);
     ui_append_spoken(text);
 }
 
@@ -524,12 +562,29 @@ static char *tool_cancel_reminder(const cJSON *args)
     return reply("result", "připomínka zrušena");
 }
 
+static volatile int quiet_requested = -1;
+static bool console_muted;
+static uint32_t quiet_until;
+static bool ringing;
+
+static char *tool_set_quiet(const cJSON *args)
+{
+    const cJSON *minutes = cJSON_GetObjectItemCaseSensitive(args, "minutes");
+    if (!cJSON_IsNumber(minutes) || minutes->valueint < 0 || minutes->valueint > QUIET_LONGEST_MINUTES) {
+        return reply("error", "Ticho může trvat nejvýše 24 hodin.");
+    }
+    quiet_requested = minutes->valueint;
+    return reply("result", minutes->valueint > 0 ? "budu potichu" : "zase mluvím nahlas");
+}
+
 static char *run_tool(const tool_call_t *call)
 {
     cJSON *args = cJSON_Parse(call->args);
     char *result = NULL;
     if (strcmp(call->name, "display_light") == 0) {
         result = tool_display(args);
+    } else if (strcmp(call->name, "set_quiet") == 0) {
+        result = tool_set_quiet(args);
     } else if (strcmp(call->name, "set_devices") == 0) {
         result = ikea_tool_set(call->args);
     } else if (strcmp(call->name, "get_devices") == 0) {
@@ -552,6 +607,18 @@ static char *run_tool(const tool_call_t *call)
         result = lists_tool_list_alarms();
     } else if (strcmp(call->name, "cancel_alarm") == 0) {
         result = lists_tool_cancel_alarm(call->args);
+    } else if (strcmp(call->name, "search_memory") == 0) {
+        result = recall_tool_search(call->args);
+    } else if (strcmp(call->name, "remember") == 0) {
+        result = recall_tool_remember(call->args);
+    } else if (strcmp(call->name, "forget") == 0) {
+        result = recall_tool_forget(call->args);
+    } else if (strcmp(call->name, "set_timer") == 0) {
+        result = lists_tool_set_timer(call->args);
+    } else if (strcmp(call->name, "list_timers") == 0) {
+        result = lists_tool_list_timers();
+    } else if (strcmp(call->name, "cancel_timer") == 0) {
+        result = lists_tool_cancel_timer(call->args);
     } else if (strcmp(call->name, "printer_status") == 0) {
         result = printer_tool_status();
     } else if (strcmp(call->name, "get_calendar") == 0) {
@@ -678,13 +745,21 @@ static char *build_instruction(bool with_home, const reminder_t *unheard, int un
         append(&text, "\n\n%s\n\n%s", HOME, devices ? devices : "");
         free(devices);
     }
+    char *remembered = recall_context();
+    if (remembered) {
+        append(&text, "\n\n%s%s", MEMORY, remembered);
+        free(remembered);
+    }
     return text.data;
 }
 
 static char *build_functions(bool with_home)
 {
     text_t text = {0};
-    append(&text, "[%s,%s,%s,%s", DISPLAY_FUNCTION, REMINDER_FUNCTIONS, LIST_FUNCTIONS, WEATHER_FUNCTION);
+    append(&text, "[%s,%s,%s,%s,%s", DISPLAY_FUNCTION, QUIET_FUNCTION, REMINDER_FUNCTIONS, LIST_FUNCTIONS, WEATHER_FUNCTION);
+    if (recall_enabled()) {
+        append(&text, ",%s", MEMORY_FUNCTIONS);
+    }
     if (!native_search() && search_configured()) {
         append(&text, ",%s", SEARCH_FUNCTION);
     }
@@ -758,6 +833,7 @@ static void go_idle(void)
     wake_clear_capture();
     audio_flush();
     live_close();
+    recall_session_end();
     wake_set_armed(true);
     if (net_connected()) {
         enter(STATE_IDLE);
@@ -778,6 +854,7 @@ static void fail(const char *message)
     wake_clear_capture();
     audio_flush();
     live_close();
+    recall_session_end();
     enter(STATE_ERROR);
     ui_set_mode(UI_ERROR, message);
 }
@@ -816,6 +893,31 @@ static esp_err_t open_connection(void)
     return err;
 }
 
+static void apply_muting(void)
+{
+    audio_set_muted(console_muted || (quiet_until != 0 && !ringing));
+}
+
+static void set_quiet(int minutes)
+{
+    quiet_until = minutes > 0 && net_time_valid() ? (uint32_t) time(NULL) + (uint32_t) minutes * 60 : 0;
+    settings_write_number(QUIET_SETTING, quiet_until);
+    apply_muting();
+    ESP_LOGI(TAG, "quiet for %d minutes", minutes);
+}
+
+static void watch_quiet(void)
+{
+    if (quiet_requested >= 0) {
+        int minutes = quiet_requested;
+        quiet_requested = -1;
+        set_quiet(minutes);
+    }
+    if (quiet_until && net_time_valid() && (uint32_t) time(NULL) >= quiet_until) {
+        set_quiet(0);
+    }
+}
+
 static int connect_attempt;
 
 static bool connect_again(const char *why)
@@ -842,6 +944,7 @@ static void start_session(session_kind_t kind)
         wake_clear_capture();
     }
     session_kind = kind;
+    recall_session_begin();
     audio_prepare();
     connect_attempt = 1;
     esp_err_t opened = open_connection();
@@ -879,7 +982,7 @@ static void start_session(session_kind_t kind)
 static void announce_due(void)
 {
     reminder_t due;
-    if (!net_time_valid()) {
+    if (!net_time_valid() || quiet_until) {
         return;
     }
     time_t now = time(NULL);
@@ -1090,6 +1193,42 @@ static int compare_devices(const void *left, const void *right)
     return room ? room : strcmp(a->name, b->name);
 }
 
+static void fill_today(home_data_t *data, int64_t now)
+{
+    static EXTERNAL_RAM todo_t todos[TODOS_MAX];
+    static EXTERNAL_RAM agenda_event_t agenda[HOME_AGENDA];
+    countdown_t timers[COUNTDOWN_MAX];
+    int running = lists_timers(timers, COUNTDOWN_MAX);
+    for (int i = 0; i < running && i < HOME_TIMERS; i++) {
+        home_timer_t *timer = &data->timers[data->timer_count++];
+        timer->id = timers[i].id;
+        timer->seconds = timers[i].seconds;
+        int64_t left = timers[i].ends_ms - now;
+        timer->remaining = left <= 0 ? 0 : (int) ((left + 999) / 1000);
+        strlcpy(timer->label, timers[i].label, sizeof(timer->label));
+        countdown_text(left, timer->left, sizeof(timer->left));
+    }
+    int listed = lists_todos(todos, TODOS_MAX);
+    for (int i = 0; i < listed && i < HOME_TODOS; i++) {
+        home_todo_t *todo = &data->todo_items[data->todo_count++];
+        todo->id = todos[i].id;
+        todo->done = todos[i].done;
+        strlcpy(todo->text, todos[i].text, sizeof(todo->text));
+    }
+    int events = calendar_today_list(agenda, HOME_AGENDA);
+    for (int i = 0; i < events; i++) {
+        home_event_t *event = &data->agenda[data->agenda_count++];
+        if (agenda[i].all_day) {
+            strlcpy(event->when, "celý den", sizeof(event->when));
+        } else {
+            struct tm start;
+            localtime_r(&agenda[i].start, &start);
+            snprintf(event->when, sizeof(event->when), "%d:%02d", start.tm_hour, start.tm_min);
+        }
+        strlcpy(event->title, agenda[i].title[0] ? agenda[i].title : "Událost", sizeof(event->title));
+    }
+}
+
 static void update_home(int64_t now)
 {
     static int64_t last;
@@ -1113,6 +1252,13 @@ static void update_home(int64_t now)
     xSemaphoreGive(reminder_lock);
     data.todos = lists_open_todos();
     next_alarm_text(data.alarm, sizeof(data.alarm));
+    if (quiet_until) {
+        time_t ends = (time_t) quiet_until;
+        struct tm local;
+        localtime_r(&ends, &local);
+        snprintf(data.quiet, sizeof(data.quiet), "Ticho do %d:%02d", local.tm_hour % 24, local.tm_min % 60);
+    }
+    fill_today(&data, now);
     switch (ikea_state()) {
     case IKEA_UNPAIRED:
         data.hub = HOME_HUB_OFFER;
@@ -1127,9 +1273,13 @@ static void update_home(int64_t now)
         data.hub = HOME_HUB_HIDDEN;
         break;
     }
-    int count = ikea_devices(found, HOME_DEVICES);
-    for (int i = 0; i < count; i++) {
-        home_device_t *device = &data.devices[i];
+    int listed = ikea_devices(found, HOME_DEVICES);
+    int count = 0;
+    for (int i = 0; i < listed; i++) {
+        if (found[i].hidden) {
+            continue;
+        }
+        home_device_t *device = &data.devices[count++];
         strlcpy(device->id, found[i].id, sizeof(device->id));
         strlcpy(device->name, found[i].name[0] ? found[i].name : "bez názvu", sizeof(device->name));
         capitals(found[i].room, device->room, sizeof(device->room));
@@ -1187,8 +1337,12 @@ static void on_console(void)
     if (strcmp(line, "ask") == 0 && argument[0] && state == STATE_IDLE) {
         strlcpy(opening, argument, sizeof(opening));
         start_session(SESSION_TEXT);
+        recall_heard(argument);
     } else if (strcmp(line, "mute") == 0) {
-        audio_set_muted(on);
+        console_muted = on;
+        apply_muting();
+    } else if (strcmp(line, "quiet") == 0) {
+        set_quiet(atoi(argument));
     } else if (strcmp(line, "dry") == 0) {
         dry = on;
     } else if (strcmp(line, "turn") == 0 && argument[0] >= '0' && argument[0] <= '3') {
@@ -1235,8 +1389,9 @@ static char pairing_code[8];
 static int64_t pairing_until;
 static int pairing_attempts;
 static int64_t restart_at;
-static bool ringing;
 static bool ring_waiting;
+static bool ring_greets;
+static int ring_limit_ms;
 static int64_t ring_since;
 static int64_t ring_last;
 static int ring_restore_volume = -1;
@@ -1280,22 +1435,36 @@ static void stop_pairing(void)
     }
 }
 
-static void start_ringing(const alarm_t *alarm)
+static void start_ringing(const char *big, const char *label, bool greets, int limit_ms)
 {
-    char clock_text[8];
-    snprintf(clock_text, sizeof(clock_text), "%d:%02d", alarm->hour, alarm->minute);
-    ESP_LOGI(TAG, "alarm %u rings at %s", (unsigned) alarm->id, clock_text);
+    ESP_LOGI(TAG, "ringing: %s %s", big, label);
     stop_pairing();
     ringing = true;
-    ring_waiting = false;
-    ring_alarm = *alarm;
+    apply_muting();
+    ring_greets = greets;
+    ring_limit_ms = limit_ms;
     ring_since = now_ms();
     ring_last = 0;
     if (prefs.volume < ALARM_MIN_VOLUME) {
         ring_restore_volume = prefs.volume;
         audio_set_volume(ALARM_MIN_VOLUME);
     }
-    ui_show_alarm(clock_text, alarm->label);
+    ui_show_alarm(big, label);
+}
+
+static void ring_alarm_now(void)
+{
+    char big[8];
+    snprintf(big, sizeof(big), "%d:%02d", ring_alarm.hour, ring_alarm.minute);
+    ring_waiting = false;
+    start_ringing(big, ring_alarm.label[0] ? ring_alarm.label : "BUDÍK", true, ALARM_RING_LIMIT_MS);
+}
+
+static void ring_timer_now(const countdown_t *timer)
+{
+    char big[16];
+    countdown_text((int64_t) timer->seconds * 1000, big, sizeof(big));
+    start_ringing(big, timer->label[0] ? timer->label : "ČASOVAČ", false, TIMER_RING_LIMIT_MS);
 }
 
 static void stop_ringing(bool greet)
@@ -1305,13 +1474,14 @@ static void stop_ringing(bool greet)
     }
     ringing = false;
     audio_flush();
+    apply_muting();
     if (ring_restore_volume >= 0) {
         audio_set_volume(ring_restore_volume);
         ring_restore_volume = -1;
     }
     ui_show_alarm(NULL, NULL);
-    ESP_LOGI(TAG, "alarm stopped%s", greet ? ", greeting" : "");
-    if (greet && state == STATE_IDLE) {
+    ESP_LOGI(TAG, "ringing stopped%s", greet && ring_greets ? ", greeting" : "");
+    if (greet && ring_greets && state == STATE_IDLE) {
         char label[ALARM_LABEL + 16] = "";
         if (ring_alarm.label[0]) {
             snprintf(label, sizeof(label), " „%s“", ring_alarm.label);
@@ -1331,12 +1501,16 @@ static void watch_alarms(int64_t now)
         }
     }
     if (ring_waiting && state == STATE_IDLE) {
-        start_ringing(&ring_alarm);
+        ring_alarm_now();
+    }
+    countdown_t finished;
+    if (!ringing && state == STATE_IDLE && lists_due_timer(&finished)) {
+        ring_timer_now(&finished);
     }
     if (!ringing) {
         return;
     }
-    if (now - ring_since > ALARM_RING_LIMIT_MS) {
+    if (now - ring_since > ring_limit_ms) {
         stop_ringing(false);
         return;
     }
@@ -1390,6 +1564,39 @@ static void api_error(api_call_t *call, int status, const char *message)
     call->reply = json_reply(root);
 }
 
+static void api_memory(api_call_t *call, const char *path, const cJSON *body)
+{
+    if (strcmp(path, "/api/memory/search") == 0 && call->method == API_POST) {
+        const cJSON *query = cJSON_GetObjectItemCaseSensitive(body, "query");
+        call->reply = json_reply(recall_lines(cJSON_IsString(query) ? query->valuestring : NULL, MEMORY_LINES));
+        return;
+    }
+    if (strcmp(path, "/api/memory") != 0) {
+        api_error(call, 404, "not found");
+    } else if (call->method == API_GET) {
+        call->reply = json_reply(recall_status());
+    } else if (call->method == API_DELETE) {
+        if (recall_wipe()) {
+            call->reply = json_reply(recall_status());
+        } else {
+            api_error(call, 500, "memory not available");
+        }
+    } else if (call->method == API_PUT) {
+        const cJSON *on = cJSON_GetObjectItemCaseSensitive(body, "enabled");
+        const cJSON *notes = cJSON_GetObjectItemCaseSensitive(body, "notes");
+        if (cJSON_IsBool(on)) {
+            recall_set_enabled(cJSON_IsTrue(on));
+        }
+        if (cJSON_IsString(notes) && !recall_set_notes(notes->valuestring)) {
+            api_error(call, 500, "memory not available");
+            return;
+        }
+        call->reply = json_reply(recall_status());
+    } else {
+        api_error(call, 405, "method not allowed");
+    }
+}
+
 static cJSON *prefs_json(void)
 {
     cJSON *item = cJSON_CreateObject();
@@ -1415,6 +1622,7 @@ static cJSON *state_json(void)
     cJSON_AddStringToObject(root, "state", state_name());
     cJSON_AddNumberToObject(root, "uptime", (double) (esp_timer_get_time() / 1000000));
     cJSON_AddBoolToObject(root, "muted", audio_muted());
+    cJSON_AddNumberToObject(root, "quiet_until", quiet_until);
     cJSON_AddBoolToObject(root, "lamp", ui_lamp());
     cJSON_AddNumberToObject(root, "revision", lists_revision() + reminders_revision);
     cJSON *network = cJSON_AddObjectToObject(root, "network");
@@ -1509,6 +1717,8 @@ static cJSON *devices_json(void)
         cJSON_AddStringToObject(item, "room", found[i].room);
         cJSON_AddStringToObject(item, "hub_name", found[i].hub_name);
         cJSON_AddStringToObject(item, "hub_room", found[i].hub_room);
+        cJSON_AddBoolToObject(item, "hidden", found[i].hidden);
+        cJSON_AddBoolToObject(item, "welcome", found[i].welcome);
         cJSON_AddBoolToObject(item, "light", found[i].light);
         cJSON_AddBoolToObject(item, "on", found[i].on);
         cJSON_AddBoolToObject(item, "reachable", found[i].reachable);
@@ -1561,7 +1771,15 @@ static void api_devices(api_call_t *call, const char *id, const cJSON *body)
             api_error(call, 400, "bad name or room");
             return;
         }
-        if (alias.named || alias.roomed) {
+        const cJSON *hidden = cJSON_GetObjectItemCaseSensitive(body, "hidden");
+        const cJSON *welcome = cJSON_GetObjectItemCaseSensitive(body, "welcome");
+        if (cJSON_IsBool(hidden)) {
+            alias.hidden = cJSON_IsTrue(hidden);
+        }
+        if (cJSON_IsBool(welcome)) {
+            alias.welcome = cJSON_IsTrue(welcome);
+        }
+        if (alias.named || alias.roomed || alias.hidden || alias.welcome) {
             aliases[index] = alias;
             alias_count += index == alias_count;
         } else if (index < alias_count) {
@@ -1710,6 +1928,16 @@ static void handle_api(api_call_t *call)
         api_devices(call, path[12] == '/' ? path + 13 : "", body);
     } else if (strncmp(path, "/api/reminders", 14) == 0) {
         api_reminders(call, path[14] == '/' ? (uint32_t) strtoul(path + 15, NULL, 10) : 0);
+    } else if (strncmp(path, "/api/memory", 11) == 0) {
+        api_memory(call, path, body);
+    } else if (strcmp(path, "/api/quiet") == 0 && call->method == API_POST) {
+        const cJSON *minutes = cJSON_GetObjectItemCaseSensitive(body, "minutes");
+        if (!cJSON_IsNumber(minutes) || minutes->valueint < 0 || minutes->valueint > QUIET_LONGEST_MINUTES) {
+            api_error(call, 400, "bad minutes");
+        } else {
+            set_quiet(minutes->valueint);
+            call->reply = json_reply(state_json());
+        }
     } else if (strcmp(path, "/api/lamp") == 0 && call->method == API_POST) {
         const cJSON *on = cJSON_GetObjectItemCaseSensitive(body, "on");
         ui_set_lamp(cJSON_IsBool(on) ? cJSON_IsTrue(on) : !ui_lamp());
@@ -1723,6 +1951,7 @@ static void handle_api(api_call_t *call)
         } else {
             snprintf(opening, sizeof(opening), PHONE_MESSAGE, text->valuestring);
             start_session(SESSION_TEXT);
+            recall_heard(text->valuestring);
             call->reply = json_reply(cJSON_CreateObject());
         }
     } else if (strcmp(path, "/api/alarm/stop") == 0 && call->method == API_POST) {
@@ -1990,6 +2219,8 @@ static void supervise(void)
     report(now);
     show_printer(now);
     update_home(now);
+    recall_tick(state == STATE_IDLE && !ringing);
+    watch_quiet();
     if (tool_busy) {
         last_activity = now;
     }
@@ -2079,6 +2310,8 @@ void app_main(void)
     if (audio_init(prefs.volume) != ESP_OK) {
         ESP_LOGE(TAG, "audio failed to start");
     } else {
+        quiet_until = settings_read_number(QUIET_SETTING);
+        apply_muting();
         checkpoint("audio");
         if (wake_start() != ESP_OK) {
             ESP_LOGE(TAG, "wake word failed to start");
@@ -2106,6 +2339,7 @@ void app_main(void)
     static uint8_t stored_reminders[sizeof(reminder_t) * REMINDERS_MAX + 16];
     reminders_load(stored_reminders, settings_read_blob(NVS_REMINDERS, stored_reminders, sizeof(stored_reminders)));
     lists_init();
+    recall_start();
     load_tokens();
     show_reminders();
     ui_set_mode(UI_OFFLINE, NULL);

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import argparse
-import glob
 import json
 import struct
 import subprocess
@@ -13,8 +12,10 @@ BUILD = ROOT / "firmware" / "build"
 SETTINGS = ROOT / "nastaveni.json"
 PARTITION_ENTRY = struct.Struct("<HBBII16sI")
 PARTITION_MAGIC = 0x50AA
-PORT_PATTERNS = ("/dev/cu.wchusbserial*", "/dev/cu.usbserial*", "/dev/cu.usbmodem*")
 BAUD = 115200
+
+
+JARVIS_SERIAL = "A4:CB:8F:CF:68:20"
 
 
 def fail(message):
@@ -22,11 +23,13 @@ def fail(message):
 
 
 def find_port(explicit):
-    if explicit:
-        return explicit
-    ports = [port for pattern in PORT_PATTERNS for port in sorted(glob.glob(pattern))]
+    from serial.tools import list_ports
+
+    ports = [port.device for port in list_ports.comports() if port.serial_number == JARVIS_SERIAL]
     if not ports:
-        fail("no serial port found; plug the board in with a data cable")
+        fail(f"the Jarvis board ({JARVIS_SERIAL}) is not connected")
+    if explicit and explicit not in ports:
+        fail(f"{explicit} is not the Jarvis board, that one is on {ports[0]}")
     return ports[0]
 
 

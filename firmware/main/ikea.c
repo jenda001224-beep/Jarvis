@@ -248,10 +248,14 @@ static void apply_alias(device_t *device)
 {
     strlcpy(device->name, device->hub_name, sizeof(device->name));
     strlcpy(device->room, device->hub_room, sizeof(device->room));
+    device->hidden = false;
+    device->welcome = false;
     for (int i = 0; i < alias_count; i++) {
         if (strcmp(aliases[i].id, device->id) != 0) {
             continue;
         }
+        device->hidden = aliases[i].hidden;
+        device->welcome = aliases[i].welcome;
         if (aliases[i].named) {
             strlcpy(device->name, aliases[i].name, sizeof(device->name));
         }
@@ -411,6 +415,9 @@ char *ikea_describe_devices(void)
     size_t used = (size_t) snprintf(text, capacity, "Zařízení (id; název; místnost; typ):\n");
     for (int i = 0; i < device_count && used < capacity; i++) {
         const device_t *device = &devices[i];
+        if (device->hidden) {
+            continue;
+        }
         used += (size_t) snprintf(text + used, capacity - used, "%s; %s; %s; %s\n", device->id, device->name,
                                   device->room[0] ? device->room : "bez místnosti",
                                   device->light ? "světlo" : "zásuvka");
@@ -447,6 +454,9 @@ char *ikea_tool_get(void)
     cJSON *list = cJSON_AddArrayToObject(root, "devices");
     for (int i = 0; i < device_count; i++) {
         const device_t *device = &devices[i];
+        if (device->hidden) {
+            continue;
+        }
         cJSON *item = cJSON_CreateObject();
         cJSON_AddStringToObject(item, "id", device->id);
         cJSON_AddStringToObject(item, "name", device->name);
