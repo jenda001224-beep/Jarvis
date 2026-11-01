@@ -83,6 +83,9 @@
 #define TIMER_RING_LIMIT_MS (2 * 60 * 1000)
 #define MEMORY_LINES 60
 #define ALERT_TITLE 48
+#define NOTICE_ANSWER_MS (12 * 1000)
+#define NOTICE_RETRY_MS (5 * 60 * 1000)
+#define NOTICE_CALLS 2
 #define ALERT_LONGEST_SECONDS (30 * 60)
 #define ALERT_DEFAULT_SECONDS (5 * 60)
 #define CHAT_LIMIT 1000
@@ -222,7 +225,10 @@ static const char ANNOUNCEMENT[] =
     "jestli tě slyší.";
 
 static const char NOTICE_PROMPT[] =
-    "Řekni pánovi stručně a věrně toto oznámení, nic nepřidávej a na nic se neptej: „%s“";
+    "Máš pro pána oznámení: „%s“ Nejdřív upoutej jeho pozornost: řekni jen jedno slovo, „Pane?“, a tím tvoje odpověď končí. "
+    "Oznámení teď ještě neříkej. Počkej, až se pán ozve. Teprve potom mu ho řekni jednou krátkou větou, věrně a bez "
+    "přidaných informací; když je to jen informace, dodej něco jako „jen abyste věděl“. Hned nato zavolej end_conversation. "
+    "Když pán řekne, že teď ne, řekni jen „Dobře, pane.“ a zavolej end_conversation.";
 
 static const char UNREAD_NOTICES[] =
     "Mezitím přišla tato oznámení a pán je ještě neslyšel. Stručně je řekni na začátku první odpovědi: ";
@@ -414,7 +420,8 @@ static bool announced;
 static bool awaiting_answer;
 static bool delivering_unheard;
 static bool dry;
-static char opening[sizeof(ANNOUNCEMENT) + CONSOLE_LINE];
+static EXTERNAL_RAM char notice_joined[NOTICES_MAX * (NOTICE_TEXT + 2)];
+static EXTERNAL_RAM char opening[sizeof(NOTICE_PROMPT) + sizeof(notice_joined) + CONSOLE_LINE];
 
 static int64_t now_ms(void)
 {
@@ -624,6 +631,7 @@ static char *tool_cancel_reminder(const cJSON *args)
 
 static volatile int quiet_requested = -1;
 static volatile bool conversation_over;
+static volatile bool notice_waiting;
 static volatile int volume_requested = -1;
 static home_prefs_t prefs;
 
@@ -677,8 +685,12 @@ static char *run_tool(const tool_call_t *call)
     } else if (strcmp(call->name, "system_update") == 0) {
         result = update_tool(call->args);
     } else if (strcmp(call->name, "end_conversation") == 0) {
-        conversation_over = true;
-        result = reply("result", "rozhovor skončí, jakmile domluvíš");
+        if (notice_waiting) {
+            result = reply("error", "Pán se ještě neozval. Počkej na něj a oznámení zatím neříkej.");
+        } else {
+            conversation_over = true;
+            result = reply("result", "rozhovor skončí, jakmile domluvíš");
+        }
     } else if (strcmp(call->name, "set_volume") == 0) {
         result = tool_set_volume(args);
     } else if (strcmp(call->name, "play_radio") == 0) {
@@ -854,7 +866,7 @@ static char *build_instruction(bool with_home, const reminder_t *unheard, int un
         append(&text, "\n\n%s\n\n%s", HOME, devices ? devices : "");
         free(devices);
     }
-    if (session_kind != SESSION_ANNOUNCE) {
+    if (session_kind != SESSION_ANNOUNCE && !notice_waiting) {
         char *unread = allocate_external(NOTICES_MAX * (NOTICE_TEXT + 2));
         if (unread && watch_describe_unread(unread, NOTICES_MAX * (NOTICE_TEXT + 2)) > 0) {
             append(&text, "\n\n%s%s", UNREAD_NOTICES, unread);
@@ -944,8 +956,37 @@ static void enter(state_t next)
     state_since = now_ms();
 }
 
+static int notice_calls;
+static int64_t notice_next_call;
+
+static void notice_unanswered(void)
+{
+    notice_waiting = false;
+    notice_calls++;
+    if (notice_calls >= NOTICE_CALLS) {
+        notice_calls = 0;
+        notice_next_call = 0;
+        watch_silence();
+        ESP_LOGI(TAG, "no answer to the call, the notice stays on the display");
+    } else {
+        notice_next_call = now_ms() + NOTICE_RETRY_MS;
+        ESP_LOGI(TAG, "no answer to the call, trying once more later");
+    }
+}
+
+static void notice_answered(void)
+{
+    notice_waiting = false;
+    notice_calls = 0;
+    notice_next_call = 0;
+    watch_take_spoken(notice_joined, sizeof(notice_joined));
+}
+
 static void go_idle(void)
 {
+    if (notice_waiting) {
+        notice_unanswered();
+    }
     ack_pending = false;
     acking = false;
     end_announcement(false);
@@ -1140,18 +1181,20 @@ static char *chat_tool(const char *name, const char *args_json)
 
 static void speak_notices(void)
 {
-    char joined[sizeof(ANNOUNCEMENT) + CONSOLE_LINE - sizeof(NOTICE_PROMPT)];
     if (quiet_until || ui_night() || watch_away()) {
         watch_silence();
+        notice_calls = 0;
+        notice_next_call = 0;
         return;
     }
-    if (state != STATE_IDLE || ringing || ui_lamp() || !net_connected()) {
+    if (state != STATE_IDLE || ringing || ui_lamp() || !net_connected() || (notice_next_call && now_ms() < notice_next_call)) {
         return;
     }
-    if (watch_take_spoken(joined, sizeof(joined)) > 0) {
-        snprintf(opening, sizeof(opening), NOTICE_PROMPT, joined);
+    if (watch_peek_spoken(notice_joined, sizeof(notice_joined)) > 0) {
+        snprintf(opening, sizeof(opening), NOTICE_PROMPT, notice_joined);
+        notice_next_call = 0;
+        notice_waiting = true;
         start_session(SESSION_TEXT);
-        conversation_over = true;
     }
 }
 
@@ -1563,6 +1606,10 @@ static void on_console(void)
         strlcpy(opening, argument, sizeof(opening));
         start_session(SESSION_TEXT);
         recall_heard(argument);
+    } else if (strcmp(line, "heard") == 0 && argument[0] && live_was_ready()) {
+        on_heard(argument);
+        app_post(APP_EVENT_HEARD);
+        live_send_text(argument);
     } else if (strcmp(line, "mute") == 0) {
         console_muted = on;
         apply_muting();
@@ -2627,6 +2674,11 @@ static void handle(app_event_t event)
             stop_pairing();
         } else if (alert.shown) {
             end_alert();
+        } else if (notice_waiting) {
+            notice_waiting = false;
+            notice_calls = 0;
+            watch_silence();
+            go_idle();
         } else if (ui_lamp()) {
             ui_set_lamp(false);
         } else if (state == STATE_IDLE) {
@@ -2691,6 +2743,9 @@ static void handle(app_event_t event)
     case APP_EVENT_HEARD:
         last_activity = now_ms();
         heard_any = true;
+        if (notice_waiting && heard_letters >= 2) {
+            notice_answered();
+        }
         if (awaiting_answer && heard_letters >= 2) {
             end_announcement(true);
         }
@@ -2888,7 +2943,7 @@ static void supervise(void)
             ui_set_mode(thinking ? UI_THINKING : UI_LISTENING, NULL);
         }
         if (now - last_activity >
-                (awaiting_answer ? ANSWER_TIMEOUT_MS : replied ? FOLLOW_UP_TIMEOUT_MS : FIRST_TURN_TIMEOUT_MS) ||
+                (notice_waiting ? NOTICE_ANSWER_MS : awaiting_answer ? ANSWER_TIMEOUT_MS : replied ? FOLLOW_UP_TIMEOUT_MS : FIRST_TURN_TIMEOUT_MS) ||
             now - session_since > SESSION_LIMIT_MS) {
             go_idle();
         }

@@ -131,7 +131,9 @@ vyber svůj iPhone a spusť. Doma mluví s displejem přímo po Wi-Fi. Mimo domo
 - **Oznámení:** `python3 tools/jarvis_notify.py "Text"` z jakéhokoli skriptu. Claude Code tak hlásí dokončení delší práce
   i žádost o povolení: displej ji ukáže přes celou obrazovku a Jarvis ji přečte. Po povolení na Macu nebo po dotyku zmizí.
   V noci a při ztišení svítí slabě a mlčí. Skripty můžou upozornění vyvolat přes `POST /api/alert`.
-- **Sám se ozve:** tisk hotový nebo selhal, čas vyrazit na schůzku, za chvíli začne pršet. V noci a při ztišení jen na displej.
+- **Sám se ozve:** tisk hotový nebo selhal, čas vyrazit na schůzku, za chvíli začne pršet. Nejdřív řekne „Pane?“ a zbytek až
+  po odpovědi. Když se neozveš, zkusí to za 5 minut ještě jednou a pak to nechá na displeji a řekne ti to při příštím rozhovoru.
+  V noci a při ztišení jen na displej.
 - **Přehled Dnes:** tlačítko v docku. Časovače, program, úkoly s odškrtáváním, zprávy, budík.
 - **Rádio, podcasty, šum na usínání:** hlasem nebo tlačítkem s notou v docku. Zvuk je mono a jde z malého reproduktoru.
 - **Zápis do Apple kalendáře:** „Dej mi v pátek v deset doktora.“

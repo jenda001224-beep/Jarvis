@@ -14,6 +14,7 @@ void watch_set_mask(int mask);
 uint32_t watch_notice(const char *source, const char *text, bool speak);
 int watch_notices(notice_t *out, int capacity);
 int watch_unread(void);
+size_t watch_peek_spoken(char *out, size_t capacity);
 size_t watch_take_spoken(char *out, size_t capacity);
 size_t watch_describe_unread(char *out, size_t capacity);
 void watch_mark_read(void);

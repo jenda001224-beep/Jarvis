@@ -83,6 +83,17 @@ int watch_unread(void)
     return count;
 }
 
+size_t watch_peek_spoken(char *out, size_t capacity)
+{
+    if (!lock) {
+        return 0;
+    }
+    xSemaphoreTake(lock, portMAX_DELAY);
+    size_t length = notices_join(out, capacity, true, false);
+    xSemaphoreGive(lock);
+    return length;
+}
+
 size_t watch_take_spoken(char *out, size_t capacity)
 {
     if (!lock) {

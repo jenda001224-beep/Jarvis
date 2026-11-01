@@ -15,6 +15,7 @@ Každé tvrzení, na kterém firmware stojí, a z čeho vychází. Stav k 17. 10
 | Noční hlasitost | na desce podle výpisu; poslechem **neověřeno** |
 | Žádost o povolení z Claude Code | hook se simulovanými událostmi na desce, přepis řeči ztlumeně, zavření dotykem i po provedení nástroje; skutečná událost z Claude Code **zatím neviděna**, že se hook spouští i v desktopové aplikaci, plyne z kódu CLI 2.1.309 (vlastní test nešel, CLI ze shellu není přihlášené) |
 | Vzhled upozornění na displeji | **neviděno** |
+| Oslovení „Pane?“ před oznámením | na desce ztlumeně, odpověď simulovaná textem: 4 ze 4 rozhovorů správně, bez odpovědi druhý pokus za 5 minut a pak ticho; odpověď skutečným hlasem **nezkoušena** |
 
 ## Verze 2.6 (31. 10. 2026)
 
